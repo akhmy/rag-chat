@@ -34,6 +34,10 @@ type IngestConfig struct {
 	OpenAIAPIKeyFile string `env:"OPENAI_API_KEY_FILE,required"`
 }
 
-func ParseEnv[T APIConfig | IngestConfig]() (T, error) {
+type CLIConfig struct {
+	Host string `env:"CHAT_HOST,required"`
+}
+
+func ParseEnv[T APIConfig | IngestConfig | CLIConfig]() (T, error) {
 	return env.ParseAs[T]()
 }
