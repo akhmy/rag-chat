@@ -26,7 +26,7 @@ func main() {
 	os.Exit(func() int {
 		fmt.Println(motto)
 
-		c := client.NewCli(http.DefaultClient, &url.URL{Scheme: "http", Host: "127.0.0.1:8080"})
+		c := client.New(http.DefaultClient, &url.URL{Scheme: "http", Host: "127.0.0.1:8080"})
 
 		scanner := bufio.NewScanner(os.Stdin)
 		for {

@@ -11,13 +11,13 @@ import (
 	"rag-service/internal/appcontext"
 )
 
-type Cli struct {
+type Client struct {
 	client  *http.Client
 	baseURL *url.URL
 }
 
-func NewCli(client *http.Client, baseURL *url.URL) *Cli {
-	return &Cli{
+func New(client *http.Client, baseURL *url.URL) *Client {
+	return &Client{
 		client:  client,
 		baseURL: baseURL,
 	}
@@ -32,7 +32,7 @@ type AskResponse struct {
 	Reply string `json:"reply"`
 }
 
-func (cli *Cli) Ask(ctx context.Context, query string, limit int) (string, error) {
+func (cli *Client) Ask(ctx context.Context, query string, limit int) (string, error) {
 	logger := appcontext.Logger(ctx)
 
 	url := cli.baseURL.JoinPath("ask")
