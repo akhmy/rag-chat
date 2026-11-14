@@ -3,7 +3,7 @@ package handler
 import (
 	"log/slog"
 	"net/http"
-	"rag-service/internal/http/middleware"
+	"rag-chat/internal/http/middleware"
 )
 
 func NewRouter(ask http.Handler, logger *slog.Logger) http.Handler {

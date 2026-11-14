@@ -5,7 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net/http"
-	"rag-service/internal/appcontext"
+	"rag-chat/internal/appcontext"
 	"strings"
 	"time"
 )

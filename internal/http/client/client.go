@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"rag-service/internal/appcontext"
+	"rag-chat/internal/appcontext"
 )
 
 type Client struct {

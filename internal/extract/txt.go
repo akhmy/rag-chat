@@ -7,7 +7,7 @@ import (
 	"io"
 	"iter"
 	"os"
-	"rag-service/internal/appcontext"
+	"rag-chat/internal/appcontext"
 	"strings"
 )
 

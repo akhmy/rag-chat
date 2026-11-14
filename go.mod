@@ -1,4 +1,4 @@
-module rag-service
+module rag-chat
 
 go 1.27.3
 

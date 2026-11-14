@@ -7,18 +7,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"rag-service/internal/config"
-	"rag-service/internal/http/handler"
-	"rag-service/internal/pipeline"
-	"rag-service/internal/postgres"
-	"rag-service/internal/postgres/sqlc"
+	"rag-chat/internal/config"
+	"rag-chat/internal/http/handler"
+	"rag-chat/internal/pipeline"
+	"rag-chat/internal/postgres"
+	"rag-chat/internal/postgres/sqlc"
 	"syscall"
 	"time"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 
-	inopenai "rag-service/internal/openai"
+	inopenai "rag-chat/internal/openai"
 )
 
 const (

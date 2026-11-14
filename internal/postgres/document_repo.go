@@ -2,8 +2,8 @@ package postgres
 
 import (
 	"context"
-	"rag-service/internal/pipeline"
-	"rag-service/internal/postgres/sqlc"
+	"rag-chat/internal/pipeline"
+	"rag-chat/internal/postgres/sqlc"
 
 	"github.com/pgvector/pgvector-go"
 )

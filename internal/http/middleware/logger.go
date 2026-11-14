@@ -3,7 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
-	"rag-service/internal/appcontext"
+	"rag-chat/internal/appcontext"
 	"time"
 )
 

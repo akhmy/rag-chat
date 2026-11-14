@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"rag-service/internal/appcontext"
+	"rag-chat/internal/appcontext"
 	"strconv"
 	"strings"
 	"time"

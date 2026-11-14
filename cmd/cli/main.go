@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"rag-service/internal/http/client"
+	"rag-chat/internal/http/client"
 )
 
 var motto = `                                  888               888    
