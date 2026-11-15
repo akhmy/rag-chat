@@ -5,13 +5,14 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net/http"
-	"rag-chat/internal/appcontext"
+	"rag-chat/internal/appctx"
+	"strconv"
 	"strings"
 	"time"
 )
 
-type AskPipeline interface {
-	Execute(ctx context.Context, query string, limit int) (string, error)
+type AskUseCase interface {
+	Execute(ctx context.Context, sessionID int64, query string, limit int) (string, error)
 }
 
 type AskRequest struct {
@@ -20,9 +21,10 @@ type AskRequest struct {
 }
 
 var (
-	ErrEmptyQuery    = errors.New("empty query")
-	ErrQueryTooLarge = errors.New("query too large")
-	ErrNegativeLimit = errors.New("limit not positive")
+	ErrEmptyQuery       = errors.New("empty query")
+	ErrQueryTooLarge    = errors.New("query too large")
+	ErrNegativeLimit    = errors.New("limit not positive")
+	ErrInvalidSessionID = errors.New("invalid session ID")
 )
 
 func (req AskRequest) Validate() error {
@@ -46,12 +48,20 @@ type Response struct {
 	Reply string `json:"reply"`
 }
 
-func Ask(pl AskPipeline) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		logger := appcontext.Logger(r.Context())
+func Ask(uc AskUseCase) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := appctx.Logger(r.Context())
+
+		value := r.PathValue("sessionID")
+		sessionID, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			logger.Error("failed to parse session ID")
+			http.Error(w, ErrInvalidSessionID.Error(), http.StatusBadRequest)
+			return
+		}
 
 		req := AskRequest{}
-		err := json.UnmarshalRead(r.Body, &req)
+		err = json.UnmarshalRead(r.Body, &req)
 		if err != nil {
 			logger.Error("failed to unmarshal request", "error", err)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -75,10 +85,10 @@ func Ask(pl AskPipeline) http.HandlerFunc {
 			return
 		}
 
-		pipelineCtx, cancel := context.WithTimeout(r.Context(), time.Second*15)
+		usecaseCtx, cancel := context.WithTimeout(r.Context(), time.Second*15)
 		defer cancel()
 
-		reply, err := pl.Execute(pipelineCtx, req.Query, req.Limit)
+		reply, err := uc.Execute(usecaseCtx, sessionID, req.Query, req.Limit)
 		if err != nil {
 			logger.Error("failed to execute ask", "error", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -100,5 +110,5 @@ func Ask(pl AskPipeline) http.HandlerFunc {
 			logger.Error("failed to write response", "error", err)
 			return
 		}
-	}
+	})
 }
