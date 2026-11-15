@@ -8,42 +8,59 @@ import (
 	"net/url"
 	"os"
 	"rag-chat/internal/http/client"
+	"strconv"
+
+	_ "embed"
 )
 
-var motto = `                                  888               888    
-                                  888               888    
-                                  888               888    
-888d888 8888b.   .d88b.   .d8888b 88888b.   8888b.  888888 
-888P"      "88b d88P"88b d88P"    888 "88b     "88b 888    
-888    .d888888 888  888 888      888  888 .d888888 888    
-888    888  888 Y88b 888 Y88b.    888  888 888  888 Y88b.  
-888    "Y888888  "Y88888  "Y8888P 888  888 "Y888888  "Y888 
-                     888                                   
-                Y8b d88P                                   
-                 "Y88P"                                    `
+//go:embed motto
+var motto string
 
 func main() {
-	os.Exit(func() int {
-		fmt.Println(motto)
+	os.Exit(run())
+}
 
-		c := client.New(http.DefaultClient, &url.URL{Scheme: "http", Host: "127.0.0.1:8080"})
+var usage = "usage: ingest {userID} {sessionID}"
 
-		scanner := bufio.NewScanner(os.Stdin)
-		for {
-			fmt.Print("\nYou: ")
-			if !scanner.Scan() {
-				return 0
-			}
+func run() int {
+	if len(os.Args) != 3 {
+		fmt.Println(usage)
+		return 1
+	}
 
-			query := scanner.Text()
+	c := client.New(http.DefaultClient, &url.URL{Scheme: "http", Host: "127.0.0.1:8080"})
 
-			reply, err := c.Ask(context.Background(), query, 5)
-			if err != nil {
-				fmt.Println("Error: " + err.Error())
-				continue
-			}
+	raw := os.Args[1]
+	userID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		fmt.Println(usage)
+		return 1
+	}
 
-			fmt.Println("Agent: " + reply)
+	raw = os.Args[2]
+	sessionID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		fmt.Println(usage)
+		return 1
+	}
+
+	fmt.Println(motto)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("\nYou: ")
+		if !scanner.Scan() {
+			return 0
 		}
-	}())
+
+		query := scanner.Text()
+
+		reply, err := c.Ask(context.Background(), userID, sessionID, query, 5)
+		if err != nil {
+			fmt.Println("Error: " + err.Error())
+			continue
+		}
+
+		fmt.Println("Agent: " + reply)
+	}
 }
