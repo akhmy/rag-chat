@@ -1,10 +1,10 @@
-package pipeline
+package usecase
 
 import (
 	"context"
 	"fmt"
 	"iter"
-	"rag-chat/internal/appcontext"
+	"rag-chat/internal/appctx"
 	"strconv"
 	"strings"
 	"time"
@@ -50,10 +50,10 @@ var (
 	ChunkOverlap = 25
 )
 
-func (pl *Ingest) Execute(ctx context.Context) error {
-	logger := appcontext.Logger(ctx)
+func (uc *Ingest) Execute(ctx context.Context) error {
+	logger := appctx.Logger(ctx)
 
-	documentID, err := pl.repo.InsertDocument(ctx, pl.source.Title())
+	documentID, err := uc.repo.InsertDocument(ctx, uc.source.Title())
 	if err != nil {
 		return fmt.Errorf("save document: %w", err)
 	}
@@ -70,12 +70,12 @@ func (pl *Ingest) Execute(ctx context.Context) error {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second*3)
 		defer cancel()
 
-		if err := pl.repo.DeleteDocument(cleanupCtx, documentID); err != nil {
+		if err := uc.repo.DeleteDocument(cleanupCtx, documentID); err != nil {
 			logger.Error("failed to delete document "+strconv.FormatInt(documentID, 10), "error", err)
 		}
 	}()
 
-	for content, err := range pl.source.Iter(ctx) {
+	for content, err := range uc.source.Iter(ctx) {
 		if err != nil {
 			return fmt.Errorf("extract: %w", err)
 		}
@@ -95,17 +95,17 @@ func (pl *Ingest) Execute(ctx context.Context) error {
 			}
 		}
 
-		embeddings, err := pl.embSvc.EmbedMany(ctx, batch)
+		embeddings, err := uc.embSvc.EmbedMany(ctx, batch)
 		if err != nil {
 			return fmt.Errorf("embed batch: %w", err)
 		}
 
-		if err := pl.repo.InsertChunks(ctx, documentID, batch, embeddings); err != nil {
+		if err := uc.repo.InsertChunks(ctx, documentID, batch, embeddings); err != nil {
 			return fmt.Errorf("save chunks: %w", err)
 		}
 	}
 
-	if err := pl.repo.MarkDocumentAsIngested(ctx, documentID); err != nil {
+	if err := uc.repo.MarkDocumentAsIngested(ctx, documentID); err != nil {
 		return fmt.Errorf("mark document as ingested: %w", err)
 	}
 
