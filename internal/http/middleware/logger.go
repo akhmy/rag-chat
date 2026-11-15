@@ -3,7 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
-	"rag-chat/internal/appcontext"
+	"rag-chat/internal/appctx"
 	"time"
 )
 
@@ -40,7 +40,7 @@ func Logger(base *slog.Logger) func(http.Handler) http.Handler {
 			logger.Info("received request")
 
 			ww := &wrappedResponseWriter{ResponseWriter: w}
-			ctx := appcontext.WithLogger(r.Context(), logger)
+			ctx := appctx.WithLogger(r.Context(), logger)
 			start := time.Now()
 
 			defer func() {

@@ -7,7 +7,7 @@ import (
 	"io"
 	"iter"
 	"os"
-	"rag-chat/internal/appcontext"
+	"rag-chat/internal/appctx"
 	"strings"
 )
 
@@ -28,7 +28,7 @@ func (s *TXTSource) Title() string {
 }
 
 func (s *TXTSource) Iter(ctx context.Context) iter.Seq2[string, error] {
-	logger := appcontext.Logger(ctx)
+	logger := appctx.Logger(ctx)
 
 	return func(yield func(string, error) bool) {
 		file, err := os.Open(s.path)

@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"rag-chat/internal/appcontext"
+	"rag-chat/internal/appctx"
 	"rag-chat/internal/config"
 	"rag-chat/internal/extract"
-	"rag-chat/internal/pipeline"
 	"rag-chat/internal/postgres"
 	"rag-chat/internal/postgres/sqlc"
+	"rag-chat/internal/usecase"
 	"strings"
 
 	inopenai "rag-chat/internal/openai"
@@ -69,7 +69,7 @@ func main() {
 				return 1
 			}
 
-			var source pipeline.Source
+			var source usecase.Source
 			if strings.HasSuffix(path, ".pdf") {
 				source = extract.NewPDFSource(path, title)
 			} else if strings.HasSuffix(path, ".txt") {
@@ -79,8 +79,8 @@ func main() {
 				continue
 			}
 
-			ctx := appcontext.WithLogger(context.Background(), logger)
-			if err := pipeline.NewIngest(documents, source, emb).Execute(ctx); err != nil {
+			ctx := appctx.WithLogger(context.Background(), logger)
+			if err := usecase.NewIngest(documents, source, emb).Execute(ctx); err != nil {
 				logger.Error("failed to ingest", "error", err)
 				return 1
 			}

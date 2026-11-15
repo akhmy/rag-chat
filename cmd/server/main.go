@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"rag-chat/internal/config"
 	"rag-chat/internal/http/handler"
-	"rag-chat/internal/usecase"
 	"rag-chat/internal/postgres"
 	"rag-chat/internal/postgres/sqlc"
+	"rag-chat/internal/usecase"
 	"syscall"
 	"time"
 

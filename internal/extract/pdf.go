@@ -7,7 +7,7 @@ import (
 	"io"
 	"iter"
 	"os/exec"
-	"rag-chat/internal/appcontext"
+	"rag-chat/internal/appctx"
 	"strings"
 )
 
@@ -25,7 +25,7 @@ func (s *PDFSource) Title() string {
 }
 
 func (s *PDFSource) Iter(ctx context.Context) iter.Seq2[string, error] {
-	logger := appcontext.Logger(ctx)
+	logger := appctx.Logger(ctx)
 
 	return func(yield func(string, error) bool) {
 		cmdCtx, cancel := context.WithCancel(ctx)
