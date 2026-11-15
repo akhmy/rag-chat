@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"context"
-	"rag-chat/internal/pipeline"
+	"rag-chat/internal/usecase"
 	"rag-chat/internal/postgres/sqlc"
 
 	"github.com/pgvector/pgvector-go"
@@ -54,7 +54,7 @@ func (repo *DocumentRepository) MarkDocumentAsIngested(
 
 func (repo *DocumentRepository) ListNearestChunks(
 	ctx context.Context, query []float32, limit int,
-) ([]pipeline.Chunk, error) {
+) ([]usecase.Chunk, error) {
 	rows, err := repo.q.ListNearestChunks(ctx, sqlc.ListNearestChunksParams{
 		Query:       pgvector.NewVector(query).String(),
 		ResultLimit: int32(limit),
@@ -63,9 +63,9 @@ func (repo *DocumentRepository) ListNearestChunks(
 		return nil, err
 	}
 
-	chunks := make([]pipeline.Chunk, 0, len(rows))
+	chunks := make([]usecase.Chunk, 0, len(rows))
 	for _, row := range rows {
-		chunks = append(chunks, pipeline.Chunk{
+		chunks = append(chunks, usecase.Chunk{
 			Title:    row.Title,
 			Content:  row.Content,
 			Distance: row.Distance,
