@@ -29,9 +29,22 @@ func (w *wrappedResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+func (w *wrappedResponseWriter) status() int {
+	if w.statusCode == 0 {
+		return http.StatusOK
+	}
+
+	return w.statusCode
+}
+
 func Logger(base *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/telegram-webhook" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			logger := base.With(
 				"url", r.URL.Path,
 				"method", r.Method,
@@ -48,13 +61,13 @@ func Logger(base *slog.Logger) func(http.Handler) http.Handler {
 					if err, ok := rec.(error); ok {
 						logger.With(
 							"duration", time.Since(start),
-							"status", ww.statusCode,
+							"status", ww.status(),
 						).Error("recovered from panic", "error", err)
 					}
 
 					logger.With(
 						"duration", time.Since(start),
-						"status", ww.statusCode,
+						"status", ww.status(),
 					).Error("recovered from panic")
 
 					panic(rec)
@@ -65,7 +78,7 @@ func Logger(base *slog.Logger) func(http.Handler) http.Handler {
 
 			logger.With(
 				"duration", time.Since(start),
-				"status", ww.statusCode,
+				"status", ww.status(),
 			).Info("completed request")
 		})
 	}
