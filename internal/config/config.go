@@ -24,9 +24,11 @@ type ServerConfig struct {
 }
 
 type APIConfig struct {
-	DB               DBConfig
-	Server           ServerConfig
-	OpenAIAPIKeyFile string `env:"OPENAI_API_KEY_FILE,required"`
+	DB                        DBConfig
+	Server                    ServerConfig
+	OpenAIAPIKeyFile          string `env:"OPENAI_API_KEY_FILE,required"`
+	TelegramWebhookSecretFile string `env:"TELEGRAM_WEBHOOK_SECRET_FILE,required"`
+	TelegramBotTokenFile      string `env:"TELEGRAM_BOT_TOKEN_FILE,required"`
 }
 
 type IngestConfig struct {
