@@ -2,9 +2,12 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"rag-chat/internal/domain"
 	"rag-chat/internal/postgres/sqlc"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type SessionRepository struct {
@@ -18,13 +21,13 @@ func NewSessionRepository(q *sqlc.Queries) *SessionRepository {
 func (repo *SessionRepository) Create(ctx context.Context, userID int64, title string) (int64, error) {
 	id, err := repo.q.CreateSession(ctx, sqlc.CreateSessionParams{
 		UserID: userID,
-		Title:  title,
+		Title:  pgtype.Text{String: title, Valid: title != ""},
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	return id, nil
+	return id.Int64, nil
 }
 
 var ErrInvalidRole = errors.New("invalid role")
@@ -105,4 +108,44 @@ func (repo *SessionRepository) ListRecentMessages(ctx context.Context, sessionID
 	}
 
 	return messages, nil
+}
+
+func (repo *SessionRepository) List(ctx context.Context, userID int64) ([]domain.Session, error) {
+	rows, err := repo.q.ListSessions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	sessions := make([]domain.Session, 0, len(rows))
+	for _, row := range rows {
+		sessions = append(sessions, domain.Session{
+			ID:    row.ID,
+			Title: row.Title.String,
+		})
+	}
+
+	return sessions, nil
+}
+
+func (repo *SessionRepository) Get(ctx context.Context, sessionID int64) (domain.Session, error) {
+	row, err := repo.q.GetSession(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Session{}, domain.ErrSessionNotFound
+		}
+
+		return domain.Session{}, err
+	}
+
+	return domain.Session{
+		ID:    sessionID,
+		Title: row.Title.String,
+	}, nil
+}
+
+func (repo *SessionRepository) SetTitle(ctx context.Context, userID int64, title string) error {
+	return repo.q.SetSessionTitle(ctx, sqlc.SetSessionTitleParams{
+		ID:    userID,
+		Title: pgtype.Text{String: title, Valid: title != ""},
+	})
 }

@@ -6,9 +6,10 @@ import (
 )
 
 type User struct {
-	ID         int64
-	TelegramID *int64
-	CreatedAt  time.Time
+	ID              int64
+	TelegramID      *int64
+	ActiveSessionID *int64
+	CreatedAt       time.Time
 }
 
 func NewUser(telegramID *int64) User {
@@ -18,5 +19,6 @@ func NewUser(telegramID *int64) User {
 }
 
 var (
+	ErrUserNotFound      = errors.New("user not found")
 	ErrUserAlreadyExists = errors.New("user already exists")
 )
