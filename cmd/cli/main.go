@@ -28,7 +28,7 @@ func run() int {
 		return 1
 	}
 
-	c := client.New(http.DefaultClient, &url.URL{Scheme: "http", Host: "127.0.0.1:8080"})
+	c := client.New(http.DefaultClient, &url.URL{Scheme: "https", Host: "rag.akhmy.space"})
 
 	raw := os.Args[1]
 	userID, err := strconv.ParseInt(raw, 10, 64)
