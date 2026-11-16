@@ -4,111 +4,141 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"iter"
 	"net/http"
 	"rag-chat/internal/appctx"
+	"rag-chat/internal/usecase"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type AskUseCase interface {
-	Execute(ctx context.Context, sessionID int64, query string, limit int) (string, error)
+type AskRequest struct {
+	Message string `json:"message"`
 }
 
-type AskRequest struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit"`
+func (req *AskRequest) Normalize() {
+	req.Message = strings.TrimSpace(req.Message)
 }
 
 var (
-	ErrEmptyQuery       = errors.New("empty query")
-	ErrQueryTooLarge    = errors.New("query too large")
-	ErrNegativeLimit    = errors.New("limit not positive")
+	ErrEmptyMessage    = errors.New("empty message")
+	ErrMessageTooLarge = errors.New("message too large")
+)
+
+func (req *AskRequest) Validate(maxQueryLength int) error {
+	switch {
+	case len(req.Message) > maxQueryLength:
+		return ErrMessageTooLarge
+	case req.Message == "":
+		return ErrEmptyMessage
+	default:
+		return nil
+	}
+}
+
+type AskResponse struct {
+	Message string `json:"message"`
+}
+
+type AskUseCase interface {
+	Execute(ctx context.Context, in *usecase.AskInput) iter.Seq2[string, error]
+}
+
+type AskHandlerConfig struct {
+	Timeout        time.Duration
+	MaxQueryLength int
+	RetrieveLimit  int
+}
+
+type AskHandler struct {
+	ask    AskUseCase
+	config AskHandlerConfig
+}
+
+func NewAskHandler(ask AskUseCase, cfg AskHandlerConfig) *AskHandler {
+	return &AskHandler{
+		ask:    ask,
+		config: cfg,
+	}
+}
+
+var (
 	ErrInvalidSessionID = errors.New("invalid session ID")
 )
 
-func (req AskRequest) Validate() error {
-	// Placeholder value.
-	if len(req.Query) > 2048 {
-		return ErrQueryTooLarge
+func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	logger := appctx.Logger(r.Context())
+
+	userID, err := strconv.ParseInt(r.PathValue("userID"), 10, 64)
+	if err != nil {
+		logger.Error("failed to parse userID")
+		http.Error(w, ErrInvalidUserID.Error(), http.StatusBadRequest)
+		return
 	}
 
-	if strings.TrimSpace(req.Query) == "" {
-		return ErrEmptyQuery
+	sessionID, err := strconv.ParseInt(r.PathValue("sessionID"), 10, 64)
+	if err != nil {
+		logger.Error("failed to parse session ID")
+		http.Error(w, ErrInvalidSessionID.Error(), http.StatusBadRequest)
+		return
 	}
 
-	if req.Limit == 0 {
-		return ErrNegativeLimit
+	var req AskRequest
+	err = json.UnmarshalRead(r.Body, &req)
+	if err != nil {
+		logger.Error("failed to unmarshal request", "error", err)
+		http.Error(w, responseBadRequest, http.StatusBadRequest)
+		return
 	}
 
-	return nil
-}
+	if err := req.Validate(h.config.MaxQueryLength); err != nil {
+		logger.Info("failed to validate request", "error", err)
 
-type Response struct {
-	Reply string `json:"reply"`
-}
-
-func Ask(uc AskUseCase) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger := appctx.Logger(r.Context())
-
-		value := r.PathValue("sessionID")
-		sessionID, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			logger.Error("failed to parse session ID")
-			http.Error(w, ErrInvalidSessionID.Error(), http.StatusBadRequest)
-			return
+		switch {
+		case errors.Is(err, ErrEmptyMessage):
+			http.Error(w, ErrEmptyMessage.Error(), http.StatusBadRequest)
+		case errors.Is(err, ErrMessageTooLarge):
+			http.Error(w, ErrMessageTooLarge.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, responseBadRequest, http.StatusBadRequest)
 		}
 
-		req := AskRequest{}
-		err = json.UnmarshalRead(r.Body, &req)
-		if err != nil {
-			logger.Error("failed to unmarshal request", "error", err)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
+		return
+	}
 
-		if err := req.Validate(); err != nil {
-			logger.Info("failed to validate request", "error", err)
+	askCtx, cancel := context.WithTimeout(r.Context(), h.config.Timeout)
+	defer cancel()
 
-			switch {
-			case errors.Is(err, ErrEmptyQuery):
-				http.Error(w, ErrEmptyQuery.Error(), http.StatusBadRequest)
-			case errors.Is(err, ErrQueryTooLarge):
-				http.Error(w, ErrQueryTooLarge.Error(), http.StatusBadRequest)
-			case errors.Is(err, ErrNegativeLimit):
-				http.Error(w, ErrNegativeLimit.Error(), http.StatusBadRequest)
-			default:
-				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			}
-
-			return
-		}
-
-		usecaseCtx, cancel := context.WithTimeout(r.Context(), time.Second*15)
-		defer cancel()
-
-		reply, err := uc.Execute(usecaseCtx, sessionID, req.Query, req.Limit)
+	var message strings.Builder
+	for delta, err := range h.ask.Execute(askCtx, &usecase.AskInput{
+		UserID:     userID,
+		SessionID:  &sessionID,
+		Query:      req.Message,
+		TurnsLimit: 10,
+		ChunkLimit: h.config.RetrieveLimit,
+	}) {
 		if err != nil {
 			logger.Error("failed to execute ask", "error", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			http.Error(w, responseInternalServerError, http.StatusInternalServerError)
 			return
 		}
+		message.WriteString(delta)
+	}
 
-		body, err := json.Marshal(Response{Reply: reply})
-		if err != nil {
-			logger.Error("failed to marshal response", "error", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
+	body, err := json.Marshal(AskResponse{Message: message.String()})
+	if err != nil {
+		logger.Error("failed to marshal response", "error", err)
+		http.Error(w, responseInternalServerError, http.StatusInternalServerError)
+		return
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 
-		_, err = w.Write(body)
-		if err != nil {
-			logger.Error("failed to write response", "error", err)
-			return
-		}
-	})
+	_, err = w.Write(body)
+	if err != nil {
+		logger.Error("failed to write response", "error", err)
+		return
+	}
 }

@@ -11,7 +11,7 @@ import (
 )
 
 type SessionService interface {
-	Create(ctx context.Context, userID int64, title string) (int64, error)
+	CreateSession(ctx context.Context, userID int64, title string) (int64, error)
 }
 
 type SessionHandler struct {
@@ -52,7 +52,7 @@ func (h *SessionHandler) Create(w http.ResponseWriter, r *http.Request, userID i
 	var req CreateSessionRequest
 	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		logger.Error("failed to unmarshal request body", "error", err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(w, responseBadRequest, http.StatusBadRequest)
 		return
 	}
 
@@ -64,13 +64,13 @@ func (h *SessionHandler) Create(w http.ResponseWriter, r *http.Request, userID i
 		case errors.Is(err, ErrEmptyTitle):
 			http.Error(w, ErrEmptyTitle.Error(), http.StatusBadRequest)
 		default:
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			http.Error(w, responseBadRequest, http.StatusBadRequest)
 		}
 
 		return
 	}
 
-	id, err := h.svc.Create(r.Context(), userID, req.Title)
+	id, err := h.svc.CreateSession(r.Context(), userID, req.Title)
 	if err != nil {
 		logger.Error("failed to create session", "error", err)
 		return
@@ -81,7 +81,7 @@ func (h *SessionHandler) Create(w http.ResponseWriter, r *http.Request, userID i
 	})
 	if err != nil {
 		logger.Error("failed to marshal response body", "error", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		http.Error(w, responseInternalServerError, http.StatusInternalServerError)
 		return
 	}
 
@@ -118,6 +118,6 @@ func (h *SessionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.Create(w, r, userID)
 	default:
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		http.Error(w, responseMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
