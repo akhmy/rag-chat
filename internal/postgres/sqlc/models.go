@@ -63,6 +63,7 @@ type Chunk struct {
 
 type Document struct {
 	ID         int64
+	UserID     int64
 	Title      string
 	CreatedAt  pgtype.Timestamptz
 	IngestedAt pgtype.Timestamptz
