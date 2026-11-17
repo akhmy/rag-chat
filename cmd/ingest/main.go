@@ -19,73 +19,80 @@ import (
 )
 
 func main() {
-	os.Exit(func() int {
-		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	os.Exit(run())
+}
 
-		cfg, err := config.ParseEnv[config.IngestConfig]()
-		if err != nil {
-			logger.Error("failed to parse config", "error", err)
+func run() int {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	cfg, err := config.ParseEnv[config.IngestConfig]()
+	if err != nil {
+		logger.Error("failed to parse config", "error", err)
+		return 1
+	}
+
+	dbPasswordBytes, err := os.ReadFile(cfg.DB.PasswordFile)
+	if err != nil {
+		logger.Error("failed to read db password", "error", err)
+		return 1
+	}
+
+	pool, err := postgres.Connect(context.Background(), postgres.Config{
+		User:     cfg.DB.User,
+		Password: string(dbPasswordBytes),
+		Host:     cfg.DB.Host,
+		Port:     cfg.DB.Port,
+		Name:     cfg.DB.Name,
+		Options:  cfg.DB.Options,
+	})
+	if err != nil {
+		logger.Error("failed to connect to db", "error", err)
+		return 1
+	}
+
+	q := sqlc.New(pool)
+	documents := postgres.NewDocumentRepository(q)
+
+	oaiAPIKeyBytes, err := os.ReadFile(cfg.OpenAIAPIKeyFile)
+	if err != nil {
+		logger.Error("failed to read OpenAI API key", "error", err)
+		return 1
+	}
+
+	embedder := inopenai.NewEmbedder(
+		openai.NewClient(
+			option.WithAPIKey(string(oaiAPIKeyBytes)),
+		),
+	)
+
+	uc := usecase.NewIngest(documents, embedder)
+	for _, arg := range os.Args[1:] {
+		path, title, found := strings.Cut(arg, "=")
+		if !found {
+			logger.Error("failed to parse arg", "arg", arg)
 			return 1
 		}
 
-		dbPasswordBytes, err := os.ReadFile(cfg.DB.PasswordFile)
-		if err != nil {
-			logger.Error("failed to read db password", "error", err)
-			return 1
-		}
-
-		pool, err := postgres.Connect(context.Background(), postgres.Config{
-			User:     cfg.DB.User,
-			Password: string(dbPasswordBytes),
-			Host:     cfg.DB.Host,
-			Port:     cfg.DB.Port,
-			Name:     cfg.DB.Name,
-			Options:  cfg.DB.Options,
-		})
-		if err != nil {
-			logger.Error("failed to connect to db", "error", err)
-			return 1
-		}
-
-		q := sqlc.New(pool)
-		documents := postgres.NewDocumentRepository(q)
-
-		oaiAPIKeyBytes, err := os.ReadFile(cfg.OpenAIAPIKeyFile)
-		if err != nil {
-			logger.Error("failed to read OpenAI API key", "error", err)
-			return 1
-		}
-
-		emb := inopenai.NewEmbeddingService(
-			openai.NewClient(
-				option.WithAPIKey(string(oaiAPIKeyBytes)),
-			),
-		)
-
-		for _, arg := range os.Args[1:] {
-			path, title, found := strings.Cut(arg, "=")
-			if !found {
-				logger.Error("failed to parse arg", "arg", arg)
+		var source usecase.Source
+		if strings.HasSuffix(path, ".pdf") {
+			source, err = extract.NewPDFSource(path, title)
+			if err != nil {
+				logger.Error("failed to extract pdf", "error", err)
 				return 1
 			}
-
-			var source usecase.Source
-			if strings.HasSuffix(path, ".pdf") {
-				source = extract.NewPDFSource(path, title)
-			} else if strings.HasSuffix(path, ".txt") {
-				source = extract.NewTXTSource(path, title)
-			} else {
-				logger.Error("unknown document type", "arg", arg)
-				continue
-			}
-
-			ctx := appctx.WithLogger(context.Background(), logger)
-			if err := usecase.NewIngest(documents, source, emb).Execute(ctx); err != nil {
-				logger.Error("failed to ingest", "error", err)
-				return 1
-			}
+		} else if strings.HasSuffix(path, ".txt") {
+			source = extract.NewTXTSource(path, title)
+		} else {
+			logger.Error("unknown document type", "arg", arg)
+			continue
 		}
 
-		return 0
-	}())
+		ctx := appctx.WithLogger(context.Background(), logger)
+		if err := uc.Execute(ctx, source, 0); err != nil {
+			logger.Error("failed to ingest", "error", err)
+			return 1
+		}
+	}
+
+	return 0
 }

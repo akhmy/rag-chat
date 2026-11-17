@@ -19,7 +19,7 @@ type Chunk struct {
 }
 
 type Embedder interface {
-	EmbedOne(ctx context.Context, input string) ([]float32, error)
+	Embed(ctx context.Context, input string) ([]float32, error)
 }
 
 type MessageRepository interface {
@@ -34,7 +34,7 @@ type Agent interface {
 }
 
 type ChunkSearcher interface {
-	ListNearestChunks(ctx context.Context, query []float32, limit int) ([]Chunk, error)
+	ListNearestChunks(ctx context.Context, query []float32, userID int64, limit int) ([]Chunk, error)
 }
 
 type TitleGenerator interface {
@@ -157,13 +157,13 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 			return
 		}
 
-		embedding, err := uc.embedder.EmbedOne(ctx, in.Query)
+		embedding, err := uc.embedder.Embed(ctx, in.Query)
 		if err != nil {
 			yield("", fmt.Errorf("embed query: %w", err))
 			return
 		}
 
-		chunks, err := uc.chunks.ListNearestChunks(ctx, embedding, 10)
+		chunks, err := uc.chunks.ListNearestChunks(ctx, embedding, in.UserID, 10)
 		if err != nil {
 			yield("", fmt.Errorf("list nearest chunks: %w", err))
 			return

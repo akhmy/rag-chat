@@ -15,26 +15,24 @@ type Source interface {
 	Iter(ctx context.Context) iter.Seq2[string, error]
 }
 
-type BatchEmbeddingService interface {
-	EmbedMany(ctx context.Context, input []string) ([][]float32, error)
+type BatchEmbedder interface {
+	EmbedBatch(ctx context.Context, input []string) ([][]float32, error)
 }
 
 type Ingest struct {
-	repo   IngestRepo
-	source Source
-	embSvc BatchEmbeddingService
+	repo     IngestRepo
+	embedder BatchEmbedder
 }
 
-func NewIngest(repo IngestRepo, extractor Source, embSvc BatchEmbeddingService) *Ingest {
+func NewIngest(repo IngestRepo, embSvc BatchEmbedder) *Ingest {
 	return &Ingest{
-		repo:   repo,
-		source: extractor,
-		embSvc: embSvc,
+		repo:     repo,
+		embedder: embSvc,
 	}
 }
 
 type IngestRepo interface {
-	InsertDocument(ctx context.Context, title string) (int64, error)
+	InsertDocument(ctx context.Context, title string, userID int64) (int64, error)
 	DeleteDocument(ctx context.Context, id int64) error
 	InsertChunks(
 		ctx context.Context,
@@ -50,10 +48,10 @@ var (
 	ChunkOverlap = 25
 )
 
-func (uc *Ingest) Execute(ctx context.Context) error {
+func (uc *Ingest) Execute(ctx context.Context, source Source, userID int64) error {
 	logger := appctx.Logger(ctx)
 
-	documentID, err := uc.repo.InsertDocument(ctx, uc.source.Title())
+	documentID, err := uc.repo.InsertDocument(ctx, source.Title(), userID)
 	if err != nil {
 		return fmt.Errorf("save document: %w", err)
 	}
@@ -75,7 +73,7 @@ func (uc *Ingest) Execute(ctx context.Context) error {
 		}
 	}()
 
-	for content, err := range uc.source.Iter(ctx) {
+	for content, err := range source.Iter(ctx) {
 		if err != nil {
 			return fmt.Errorf("extract: %w", err)
 		}
@@ -95,7 +93,7 @@ func (uc *Ingest) Execute(ctx context.Context) error {
 			}
 		}
 
-		embeddings, err := uc.embSvc.EmbedMany(ctx, batch)
+		embeddings, err := uc.embedder.EmbedBatch(ctx, batch)
 		if err != nil {
 			return fmt.Errorf("embed batch: %w", err)
 		}

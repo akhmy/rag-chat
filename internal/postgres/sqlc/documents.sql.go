@@ -39,13 +39,18 @@ func (q *Queries) InsertChunks(ctx context.Context, arg InsertChunksParams) erro
 }
 
 const insertDocument = `-- name: InsertDocument :one
-INSERT INTO documents (title)
-VALUES ($1)
-    RETURNING id
+INSERT INTO documents (title, user_id)
+VALUES ($1, $2)
+RETURNING id
 `
 
-func (q *Queries) InsertDocument(ctx context.Context, title string) (int64, error) {
-	row := q.db.QueryRow(ctx, insertDocument, title)
+type InsertDocumentParams struct {
+	Title  string
+	UserID int64
+}
+
+func (q *Queries) InsertDocument(ctx context.Context, arg InsertDocumentParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertDocument, arg.Title, arg.UserID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -57,15 +62,17 @@ SELECT
     c.content,
     (c.embedding <=> $1::text::vector)::float8 AS distance
 FROM chunks c
-         JOIN documents d ON d.id = c.document_id
-WHERE d.ingested_at IS NOT NULL
+JOIN documents d ON d.id = c.document_id
+WHERE d.user_id = $2 AND
+      d.ingested_at IS NOT NULL
 ORDER BY distance
-    LIMIT $2
+LIMIT $3
 `
 
 type ListNearestChunksParams struct {
-	Query       string
-	ResultLimit int32
+	Query      string
+	UserID     int64
+	ChunkLimit int32
 }
 
 type ListNearestChunksRow struct {
@@ -75,7 +82,7 @@ type ListNearestChunksRow struct {
 }
 
 func (q *Queries) ListNearestChunks(ctx context.Context, arg ListNearestChunksParams) ([]ListNearestChunksRow, error) {
-	rows, err := q.db.Query(ctx, listNearestChunks, arg.Query, arg.ResultLimit)
+	rows, err := q.db.Query(ctx, listNearestChunks, arg.Query, arg.UserID, arg.ChunkLimit)
 	if err != nil {
 		return nil, err
 	}

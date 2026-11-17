@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"os"
 	"os/exec"
 	"rag-chat/internal/appctx"
 	"strings"
@@ -16,8 +17,30 @@ type PDFSource struct {
 	title string
 }
 
-func NewPDFSource(path string, title string) *PDFSource {
-	return &PDFSource{path: path, title: title}
+const pdfHeader = "%PDF-"
+
+var ErrIsNotPDF = fmt.Errorf("pdf source is not a PDF file")
+
+func NewPDFSource(path string, title string) (*PDFSource, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+
+	defer func() {
+		_ = file.Close()
+	}()
+
+	var header [5]byte
+	if _, err := io.ReadFull(file, header[:]); err != nil {
+		return nil, fmt.Errorf("failed to read header: %w", err)
+	}
+
+	if string(header[:]) != pdfHeader {
+		return nil, ErrIsNotPDF
+	}
+
+	return &PDFSource{path: path, title: title}, nil
 }
 
 func (s *PDFSource) Title() string {

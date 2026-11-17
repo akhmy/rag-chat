@@ -2,8 +2,8 @@ package postgres
 
 import (
 	"context"
-	"rag-chat/internal/usecase"
 	"rag-chat/internal/postgres/sqlc"
+	"rag-chat/internal/usecase"
 
 	"github.com/pgvector/pgvector-go"
 )
@@ -17,9 +17,12 @@ func NewDocumentRepository(q *sqlc.Queries) *DocumentRepository {
 }
 
 func (repo *DocumentRepository) InsertDocument(
-	ctx context.Context, title string,
+	ctx context.Context, title string, userID int64,
 ) (int64, error) {
-	return repo.q.InsertDocument(ctx, title)
+	return repo.q.InsertDocument(ctx, sqlc.InsertDocumentParams{
+		Title:  title,
+		UserID: userID,
+	})
 }
 
 func (repo *DocumentRepository) DeleteDocument(ctx context.Context, id int64) error {
@@ -53,11 +56,12 @@ func (repo *DocumentRepository) MarkDocumentAsIngested(
 }
 
 func (repo *DocumentRepository) ListNearestChunks(
-	ctx context.Context, query []float32, limit int,
+	ctx context.Context, query []float32, userID int64, limit int,
 ) ([]usecase.Chunk, error) {
 	rows, err := repo.q.ListNearestChunks(ctx, sqlc.ListNearestChunksParams{
-		Query:       pgvector.NewVector(query).String(),
-		ResultLimit: int32(limit),
+		Query:      pgvector.NewVector(query).String(),
+		UserID:     userID,
+		ChunkLimit: int32(limit),
 	})
 	if err != nil {
 		return nil, err

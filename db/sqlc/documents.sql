@@ -1,7 +1,7 @@
 -- name: InsertDocument :one
-INSERT INTO documents (title)
-VALUES ($1)
-    RETURNING id;
+INSERT INTO documents (title, user_id)
+VALUES ($1, $2)
+RETURNING id;
 
 -- name: DeleteDocument :exec
 DELETE FROM documents
@@ -25,7 +25,8 @@ SELECT
     c.content,
     (c.embedding <=> sqlc.arg(query)::text::vector)::float8 AS distance
 FROM chunks c
-         JOIN documents d ON d.id = c.document_id
-WHERE d.ingested_at IS NOT NULL
+JOIN documents d ON d.id = c.document_id
+WHERE d.user_id = sqlc.arg(user_id) AND
+      d.ingested_at IS NOT NULL
 ORDER BY distance
-    LIMIT sqlc.arg(result_limit);
+LIMIT sqlc.arg(chunk_limit);
