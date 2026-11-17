@@ -2,16 +2,18 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"rag-chat/internal/appctx"
 	"rag-chat/internal/domain"
+	"rag-chat/internal/extract"
+	tgerrors "rag-chat/internal/telegram/errors"
+	"rag-chat/internal/telegram/middleware"
+	"rag-chat/internal/usecase"
+	"strings"
 
 	"github.com/go-telegram/bot"
-)
-
-const (
-	startCommand    = "/start"
-	commandSessions = "/sessions"
-	sessionsPrefix  = "sessions:"
+	"github.com/go-telegram/bot/models"
 )
 
 type UserService interface {
@@ -20,41 +22,107 @@ type UserService interface {
 	SetActiveSession(ctx context.Context, userID int64, sessionID int64) error
 }
 
-type SessionService interface {
-	CreateSession(ctx context.Context, userID int64, title string) (int64, error)
-	ListSessions(ctx context.Context, userID int64) ([]domain.Session, error)
-	GetSession(ctx context.Context, sessionID int64) (domain.Session, error)
+type IngestUseCase interface {
+	Execute(ctx context.Context, source usecase.Source, userID int64) error
 }
 
-type Bot struct {
-	sdk        *bot.Bot
+type handler struct {
 	ask        AskUseCase
 	userSvc    UserService
 	sessionSvc SessionService
+	downloader *DocumentDownloader
+	ingest     IngestUseCase
 }
 
-func WireBot(token, webhookSecret string, userSvc UserService, askUC AskUseCase, sessionSvc SessionService, logger *slog.Logger) (*bot.Bot, error) {
-	b := &Bot{
-		userSvc:    userSvc,
+func NewBot(
+	token string,
+	webhookSecret string,
+	downloader *DocumentDownloader,
+	askUC AskUseCase,
+	userSvc UserService,
+	sessionSvc SessionService,
+	ingestUC IngestUseCase,
+	logger *slog.Logger,
+) (*bot.Bot, error) {
+	h := &handler{
 		ask:        askUC,
+		userSvc:    userSvc,
 		sessionSvc: sessionSvc,
+		downloader: downloader,
+		ingest:     ingestUC,
 	}
 
-	sdk, err := bot.New(
+	b, err := bot.New(
 		token,
 		bot.WithWebhookSecretToken(webhookSecret),
-		bot.WithDefaultHandler(b.handleAsk),
-		bot.WithMiddlewares(Recover, Logger(logger), ResolveUser(userSvc)),
+		bot.WithDefaultHandler(h.handleDefault),
+		bot.WithMiddlewares(middleware.Recover, middleware.Logger(logger), middleware.ResolveUser(userSvc)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	b.sdk = sdk
+	//b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, b.start)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/sessions", bot.MatchTypeExact, h.handleSessions)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "sessions:", bot.MatchTypePrefix, h.handleSessionsCallback)
 
-	sdk.RegisterHandler(bot.HandlerTypeMessageText, startCommand, bot.MatchTypeExact, b.handleStart)
-	sdk.RegisterHandler(bot.HandlerTypeMessageText, commandSessions, bot.MatchTypeExact, b.handleSessions)
-	sdk.RegisterHandler(bot.HandlerTypeCallbackQueryData, sessionsPrefix, bot.MatchTypePrefix, b.handleSessionsCallback)
+	return b, nil
+}
 
-	return sdk, nil
+func (h *handler) handleDefault(ctx context.Context, b *bot.Bot, upd *models.Update) {
+	if upd.Message.Document != nil {
+		h.handleDocument(ctx, b, upd)
+		return
+	}
+
+	h.handleAsk(ctx, b, upd)
+}
+
+func (h *handler) handleDocument(ctx context.Context, b *bot.Bot, upd *models.Update) {
+	logger := appctx.Logger(ctx)
+	user := appctx.User(ctx)
+
+	doc := upd.Message.Document
+	title := strings.TrimSpace(upd.Message.Caption)
+
+	if title == "" {
+		title = doc.FileName
+	}
+
+	file, err := b.GetFile(ctx, &bot.GetFileParams{FileID: doc.FileID})
+	if err != nil {
+		logger.Error("failed to get file", "error", err)
+		tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrUnknown)
+		return
+	}
+
+	path, err := h.downloader.DownloadTemp(ctx, b.FileDownloadLink(file))
+	if err != nil {
+		logger.Error("failed to download file", "error", err)
+		if errors.Is(err, ErrFileTooLarge) {
+			tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrFileTooLarge)
+		} else {
+			tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrUnknown)
+		}
+		return
+	}
+
+	source, err := extract.NewPDFSource(path, title)
+	if err != nil {
+		logger.Error("failed to extract pdf", "error", err)
+
+		if errors.Is(err, extract.ErrIsNotPDF) {
+			tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrFileTypeUnsupported)
+		} else {
+			tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrUnknown)
+		}
+
+		return
+	}
+
+	if err := h.ingest.Execute(ctx, source, user.ID); err != nil {
+		logger.Error("failed to ingest file", "error", err)
+		tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrUnknown)
+		return
+	}
 }

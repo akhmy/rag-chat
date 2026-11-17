@@ -17,17 +17,13 @@ type AskUseCase interface {
 	Execute(ctx context.Context, in *usecase.AskInput) iter.Seq2[string, error]
 }
 
-func (b *Bot) handleAsk(ctx context.Context, sdk *bot.Bot, upd *models.Update) {
+func (h *handler) handleAsk(ctx context.Context, sdk *bot.Bot, upd *models.Update) {
 	logger := appctx.Logger(ctx)
 	user := appctx.User(ctx)
-	if user == nil {
-		logger.Error("user is nil")
-		return
-	}
 
 	var answer strings.Builder
 	var lastDraft time.Time
-	for delta, err := range b.ask.Execute(ctx, &usecase.AskInput{
+	for delta, err := range h.ask.Execute(ctx, &usecase.AskInput{
 		UserID:     user.ID,
 		SessionID:  nil,
 		Query:      upd.Message.Text,

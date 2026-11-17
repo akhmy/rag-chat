@@ -14,6 +14,7 @@ FROM alpine:3.24.4
 
 RUN apk add --no-cache \
     ca-certificates \
+    poppler-utils \
     wget
 
 RUN wget -O /usr/local/share/ca-certificates/russian-root-ca.crt \

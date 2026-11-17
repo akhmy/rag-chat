@@ -87,7 +87,7 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 	}
 
 	client := openai.NewClient(option.WithAPIKey(string(oaiAPIKeyBytes)))
-	embSvc := inopenai.NewEmbeddingService(client)
+	embedder := inopenai.NewEmbedder(client)
 	agent := inopenai.NewAgent(client)
 	titleGen := inopenai.NewTitleGenerator(client)
 
@@ -98,7 +98,7 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 	userSvc := usecase.NewUserService(userRepo)
 	documents := postgres.NewDocumentRepository(q)
 
-	askUC := usecase.NewAsk(embSvc, documents, agent, sessionRepo, titleGen, sessionRepo, userRepo)
+	askUC := usecase.NewAsk(embedder, documents, agent, sessionRepo, titleGen, sessionRepo, userRepo)
 	askHandler := handler.NewAskHandler(askUC, handler.AskHandlerConfig{
 		Timeout:        time.Second * 15,
 		MaxQueryLength: 2048,
@@ -116,7 +116,20 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 		return nil, nil, fmt.Errorf("read Telegram bot token: %w", err)
 	}
 
-	bot, err := telegram.WireBot(string(botTokenBytes), string(webhookSecretBytes), userSvc, askUC, sessionSvc, logger)
+	downloader := telegram.NewDocumentDownloader(&http.Client{Timeout: time.Minute}, 10<<20)
+
+	ingest := usecase.NewIngest(postgres.NewDocumentRepository(q), embedder)
+
+	b, err := telegram.NewBot(
+		string(botTokenBytes),
+		string(webhookSecretBytes),
+		downloader,
+		askUC,
+		userSvc,
+		sessionSvc,
+		ingest,
+		logger,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create Telegram bot: %w", err)
 	}
@@ -127,7 +140,7 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 			askHandler,
 			handler.SignUp(userSvc),
 			sessionHandler,
-			bot.WebhookHandler(),
+			b.WebhookHandler(),
 			logger,
 		),
 		ReadTimeout:       cfg.Server.ReadTimeout,
@@ -136,7 +149,7 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 		IdleTimeout:       cfg.Server.IdleTimeout,
 	}
 
-	return srv, bot, nil
+	return srv, b, nil
 }
 
 func serve(srv *http.Server, telegramBot *bot.Bot, logger *slog.Logger) int {
