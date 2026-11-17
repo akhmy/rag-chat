@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -35,10 +34,5 @@ func (gen *TitleGenerator) GenerateTitle(ctx context.Context, query string) (str
 		return "", fmt.Errorf("send request: %w", err)
 	}
 
-	title := strings.TrimSpace(res.OutputText())
-	if title == "" {
-		return "", errors.New("empty title")
-	}
-
-	return res.OutputText(), nil
+	return strings.TrimSpace(res.OutputText()), nil
 }
