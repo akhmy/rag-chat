@@ -110,8 +110,12 @@ func (repo *SessionRepository) ListRecentMessages(ctx context.Context, sessionID
 	return messages, nil
 }
 
-func (repo *SessionRepository) List(ctx context.Context, userID int64) ([]domain.Session, error) {
-	rows, err := repo.q.ListSessions(ctx, userID)
+func (repo *SessionRepository) List(ctx context.Context, userID int64, offset, limit int) ([]domain.Session, error) {
+	rows, err := repo.q.ListSessions(ctx, sqlc.ListSessionsParams{
+		UserID: userID,
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +123,9 @@ func (repo *SessionRepository) List(ctx context.Context, userID int64) ([]domain
 	sessions := make([]domain.Session, 0, len(rows))
 	for _, row := range rows {
 		sessions = append(sessions, domain.Session{
-			ID:    row.ID,
-			Title: row.Title.String,
+			ID:        row.ID,
+			Title:     row.Title.String,
+			CreatedAt: row.CreatedAt.Time,
 		})
 	}
 

@@ -1,10 +1,14 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 type Session struct {
-	ID    int64
-	Title string
+	ID        int64
+	Title     string
+	CreatedAt time.Time
 }
 
 var (

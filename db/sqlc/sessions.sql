@@ -64,7 +64,9 @@ ORDER BY m.created_at ASC, m.id ASC;
 SELECT id, title, created_at
 FROM sessions
 WHERE user_id = $1
-ORDER BY created_at DESC, id DESC;
+ORDER BY created_at DESC, id DESC
+OFFSET $2
+LIMIT $3;
 
 -- name: GetSession :one
 SELECT title, user_id, created_at

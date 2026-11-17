@@ -216,7 +216,15 @@ SELECT id, title, created_at
 FROM sessions
 WHERE user_id = $1
 ORDER BY created_at DESC, id DESC
+OFFSET $2
+LIMIT $3
 `
+
+type ListSessionsParams struct {
+	UserID int64
+	Offset int32
+	Limit  int32
+}
 
 type ListSessionsRow struct {
 	ID        int64
@@ -224,8 +232,8 @@ type ListSessionsRow struct {
 	CreatedAt pgtype.Timestamptz
 }
 
-func (q *Queries) ListSessions(ctx context.Context, userID int64) ([]ListSessionsRow, error) {
-	rows, err := q.db.Query(ctx, listSessions, userID)
+func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]ListSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listSessions, arg.UserID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

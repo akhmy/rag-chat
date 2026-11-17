@@ -8,7 +8,7 @@ import (
 type SessionRepository interface {
 	SetTitle(ctx context.Context, userID int64, title string) error
 	Create(ctx context.Context, userID int64, title string) (int64, error)
-	List(ctx context.Context, userID int64) ([]domain.Session, error)
+	List(ctx context.Context, userID int64, limit, offset int) ([]domain.Session, error)
 	Get(ctx context.Context, sessionID int64) (domain.Session, error)
 }
 type SessionService struct {
@@ -23,8 +23,8 @@ func (s *SessionService) CreateSession(ctx context.Context, userID int64, title 
 	return s.repo.Create(ctx, userID, title)
 }
 
-func (s *SessionService) ListSessions(ctx context.Context, userID int64) ([]domain.Session, error) {
-	return s.repo.List(ctx, userID)
+func (s *SessionService) ListSessions(ctx context.Context, userID int64, limit, offset int) ([]domain.Session, error) {
+	return s.repo.List(ctx, userID, limit, offset)
 }
 
 func (s *SessionService) GetSession(ctx context.Context, sessionID int64) (domain.Session, error) {
