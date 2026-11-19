@@ -78,7 +78,7 @@ type Message struct {
 }
 
 type Session struct {
-	ID        int64
+	ID        pgtype.UUID
 	UserID    int64
 	Title     pgtype.Text
 	CreatedAt pgtype.Timestamptz
@@ -86,7 +86,7 @@ type Session struct {
 
 type Turn struct {
 	ID          int64
-	SessionID   int64
+	SessionID   pgtype.UUID
 	CreatedAt   pgtype.Timestamptz
 	CompletedAt pgtype.Timestamptz
 }
@@ -95,5 +95,5 @@ type User struct {
 	ID              int64
 	TelegramID      pgtype.Int8
 	CreatedAt       pgtype.Timestamptz
-	ActiveSessionID pgtype.Int8
+	ActiveSessionID pgtype.UUID
 }

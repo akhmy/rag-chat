@@ -21,8 +21,7 @@ func (q *Queries) DeleteDocument(ctx context.Context, id int64) error {
 
 const insertChunks = `-- name: InsertChunks :exec
 INSERT INTO chunks (document_id, content, embedding)
-SELECT
-    $1,
+SELECT $1,
     unnest($2::text[]),
     unnest($3::text[]::vector[])
 `

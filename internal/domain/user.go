@@ -3,12 +3,13 @@ package domain
 import (
 	"errors"
 	"time"
+	"uuid"
 )
 
 type User struct {
 	ID              int64
 	TelegramID      *int64
-	ActiveSessionID *int64
+	ActiveSessionID uuid.UUID
 	CreatedAt       time.Time
 }
 

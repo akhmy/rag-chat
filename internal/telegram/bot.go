@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"uuid"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -13,7 +14,7 @@ import (
 
 type UserService interface {
 	middleware.UserResolver
-	SetActiveSession(ctx context.Context, userID int64, sessionID int64) error
+	SetActiveSession(ctx context.Context, userID int64, sessionID uuid.UUID) error
 }
 
 type handler struct {

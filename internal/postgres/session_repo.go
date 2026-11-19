@@ -6,6 +6,7 @@ import (
 	"errors"
 	"rag-chat/internal/domain"
 	"rag-chat/internal/postgres/sqlc"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -18,16 +19,17 @@ func NewSessionRepository(q *sqlc.Queries) *SessionRepository {
 	return &SessionRepository{q: q}
 }
 
-func (repo *SessionRepository) Create(ctx context.Context, userID int64, title string) (int64, error) {
+func (repo *SessionRepository) Create(ctx context.Context, sessionID uuid.UUID, userID int64, title string) (uuid.UUID, error) {
 	id, err := repo.q.CreateSession(ctx, sqlc.CreateSessionParams{
+		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
 		UserID: userID,
 		Title:  pgtype.Text{String: title, Valid: title != ""},
 	})
 	if err != nil {
-		return 0, err
+		return uuid.Nil(), err
 	}
 
-	return id.Int64, nil
+	return id.Bytes, nil
 }
 
 var ErrInvalidRole = errors.New("invalid role")
@@ -43,14 +45,14 @@ func mapRoleToSQLC(role domain.MessageRole) (sqlc.MessageRole, error) {
 	}
 }
 
-func (repo *SessionRepository) CreateTurn(ctx context.Context, sessionID int64, m domain.Message) (int64, error) {
+func (repo *SessionRepository) CreateTurn(ctx context.Context, sessionID uuid.UUID, m domain.Message) (int64, error) {
 	role, err := mapRoleToSQLC(m.Role)
 	if err != nil {
 		return 0, err
 	}
 
 	return repo.q.CreateTurn(ctx, sqlc.CreateTurnParams{
-		SessionID: sessionID,
+		SessionID: pgtype.UUID{Bytes: sessionID, Valid: true},
 		Role:      role,
 		Content:   m.Content,
 	})
@@ -78,9 +80,9 @@ func (repo *SessionRepository) CreateMessage(ctx context.Context, turnID int64, 
 	return nil
 }
 
-func (repo *SessionRepository) ListRecentMessages(ctx context.Context, sessionID int64, limit int) ([]domain.Message, error) {
+func (repo *SessionRepository) ListRecentMessages(ctx context.Context, sessionID uuid.UUID, limit int) ([]domain.Message, error) {
 	rows, err := repo.q.ListRecentMessages(ctx, sqlc.ListRecentMessagesParams{
-		SessionID: sessionID,
+		SessionID: pgtype.UUID{Bytes: sessionID, Valid: true},
 		TurnLimit: int32(limit),
 	})
 	if err != nil {
@@ -123,7 +125,7 @@ func (repo *SessionRepository) List(ctx context.Context, userID int64, offset, l
 	sessions := make([]domain.Session, 0, len(rows))
 	for _, row := range rows {
 		sessions = append(sessions, domain.Session{
-			ID:        row.ID,
+			ID:        row.ID.Bytes,
 			Title:     row.Title.String,
 			CreatedAt: row.CreatedAt.Time,
 		})
@@ -132,8 +134,11 @@ func (repo *SessionRepository) List(ctx context.Context, userID int64, offset, l
 	return sessions, nil
 }
 
-func (repo *SessionRepository) Get(ctx context.Context, sessionID int64) (domain.Session, error) {
-	row, err := repo.q.GetSession(ctx, sessionID)
+func (repo *SessionRepository) Get(ctx context.Context, sessionID uuid.UUID, userID int64) (domain.Session, error) {
+	row, err := repo.q.GetSession(ctx, sqlc.GetSessionParams{
+		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
+		UserID: userID,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Session{}, domain.ErrSessionNotFound
@@ -148,9 +153,10 @@ func (repo *SessionRepository) Get(ctx context.Context, sessionID int64) (domain
 	}, nil
 }
 
-func (repo *SessionRepository) SetTitle(ctx context.Context, userID int64, title string) error {
+func (repo *SessionRepository) SetTitle(ctx context.Context, sessionID uuid.UUID, userID int64, title string) error {
 	return repo.q.SetSessionTitle(ctx, sqlc.SetSessionTitleParams{
-		ID:    userID,
-		Title: pgtype.Text{String: title, Valid: title != ""},
+		Title:  pgtype.Text{String: title, Valid: title != ""},
+		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
+		UserID: userID,
 	})
 }

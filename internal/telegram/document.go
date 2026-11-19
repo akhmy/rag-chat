@@ -16,7 +16,7 @@ import (
 )
 
 type IngestUseCase interface {
-	Execute(ctx context.Context, source usecase.Source, userID int64) error
+	Execute(ctx context.Context, source usecase.DocumentSource, userID int64) error
 }
 
 func (h *handler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Message) {

@@ -11,26 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createMessage = `-- name: CreateMessage :exec
-INSERT INTO messages (turn_id, role, content)
-VALUES ($1, $2, $3)
-`
-
-type CreateMessageParams struct {
-	TurnID  int64
-	Role    MessageRole
-	Content string
-}
-
-func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) error {
-	_, err := q.db.Exec(ctx, createMessage, arg.TurnID, arg.Role, arg.Content)
-	return err
-}
-
 const createSession = `-- name: CreateSession :one
 WITH new_session AS (
-    INSERT INTO sessions (user_id, title)
-    VALUES ($1, $2)
+    INSERT INTO sessions (id, user_id, title)
+    VALUES ($1, $2, $3)
     RETURNING id, user_id
 )
 UPDATE users AS u
@@ -41,88 +25,28 @@ RETURNING u.active_session_id
 `
 
 type CreateSessionParams struct {
+	ID     pgtype.UUID
 	UserID int64
 	Title  pgtype.Text
 }
 
-func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.Int8, error) {
-	row := q.db.QueryRow(ctx, createSession, arg.UserID, arg.Title)
-	var active_session_id pgtype.Int8
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, createSession, arg.ID, arg.UserID, arg.Title)
+	var active_session_id pgtype.UUID
 	err := row.Scan(&active_session_id)
 	return active_session_id, err
-}
-
-const createTurn = `-- name: CreateTurn :one
-WITH new_turn AS (
-    INSERT INTO turns (session_id)
-    VALUES ($3)
-    RETURNING id
-)
-INSERT INTO messages (turn_id, role, content)
-SELECT
-    nt.id,
-    $1,
-    $2
-FROM new_turn nt
-RETURNING turn_id
-`
-
-type CreateTurnParams struct {
-	Role      MessageRole
-	Content   string
-	SessionID int64
-}
-
-func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (int64, error) {
-	row := q.db.QueryRow(ctx, createTurn, arg.Role, arg.Content, arg.SessionID)
-	var turn_id int64
-	err := row.Scan(&turn_id)
-	return turn_id, err
-}
-
-const createUser = `-- name: CreateUser :one
-INSERT INTO users (telegram_id)
-VALUES ($1)
-    RETURNING id, telegram_id, created_at
-`
-
-type CreateUserRow struct {
-	ID         int64
-	TelegramID pgtype.Int8
-	CreatedAt  pgtype.Timestamptz
-}
-
-func (q *Queries) CreateUser(ctx context.Context, telegramID pgtype.Int8) (CreateUserRow, error) {
-	row := q.db.QueryRow(ctx, createUser, telegramID)
-	var i CreateUserRow
-	err := row.Scan(&i.ID, &i.TelegramID, &i.CreatedAt)
-	return i, err
-}
-
-const getActiveSession = `-- name: GetActiveSession :one
-SELECT s.id, s.title
-FROM sessions s
-JOIN users u ON u.active_session_id = s.id
-WHERE u.id = $1
-`
-
-type GetActiveSessionRow struct {
-	ID    int64
-	Title pgtype.Text
-}
-
-func (q *Queries) GetActiveSession(ctx context.Context, id int64) (GetActiveSessionRow, error) {
-	row := q.db.QueryRow(ctx, getActiveSession, id)
-	var i GetActiveSessionRow
-	err := row.Scan(&i.ID, &i.Title)
-	return i, err
 }
 
 const getSession = `-- name: GetSession :one
 SELECT title, user_id, created_at
 FROM sessions
-WHERE id = $1
+WHERE id = $1 AND user_id = $2
 `
+
+type GetSessionParams struct {
+	ID     pgtype.UUID
+	UserID int64
+}
 
 type GetSessionRow struct {
 	Title     pgtype.Text
@@ -130,85 +54,11 @@ type GetSessionRow struct {
 	CreatedAt pgtype.Timestamptz
 }
 
-func (q *Queries) GetSession(ctx context.Context, id int64) (GetSessionRow, error) {
-	row := q.db.QueryRow(ctx, getSession, id)
+func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (GetSessionRow, error) {
+	row := q.db.QueryRow(ctx, getSession, arg.ID, arg.UserID)
 	var i GetSessionRow
 	err := row.Scan(&i.Title, &i.UserID, &i.CreatedAt)
 	return i, err
-}
-
-const getUserByTelegramID = `-- name: GetUserByTelegramID :one
-SELECT id, active_session_id, created_at
-FROM users
-WHERE telegram_id = $1
-`
-
-type GetUserByTelegramIDRow struct {
-	ID              int64
-	ActiveSessionID pgtype.Int8
-	CreatedAt       pgtype.Timestamptz
-}
-
-func (q *Queries) GetUserByTelegramID(ctx context.Context, telegramID pgtype.Int8) (GetUserByTelegramIDRow, error) {
-	row := q.db.QueryRow(ctx, getUserByTelegramID, telegramID)
-	var i GetUserByTelegramIDRow
-	err := row.Scan(&i.ID, &i.ActiveSessionID, &i.CreatedAt)
-	return i, err
-}
-
-const listRecentMessages = `-- name: ListRecentMessages :many
-WITH recent_turns AS (
-    SELECT id
-    FROM turns
-    WHERE session_id = $1
-    ORDER BY created_at DESC, id DESC
-    LIMIT $2
-    )
-SELECT
-    m.id,
-    m.role,
-    m.content,
-    m.created_at
-FROM messages m
-JOIN recent_turns rt ON rt.id = m.turn_id
-ORDER BY m.created_at ASC, m.id ASC
-`
-
-type ListRecentMessagesParams struct {
-	SessionID int64
-	TurnLimit int32
-}
-
-type ListRecentMessagesRow struct {
-	ID        int64
-	Role      MessageRole
-	Content   string
-	CreatedAt pgtype.Timestamptz
-}
-
-func (q *Queries) ListRecentMessages(ctx context.Context, arg ListRecentMessagesParams) ([]ListRecentMessagesRow, error) {
-	rows, err := q.db.Query(ctx, listRecentMessages, arg.SessionID, arg.TurnLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListRecentMessagesRow
-	for rows.Next() {
-		var i ListRecentMessagesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Role,
-			&i.Content,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listSessions = `-- name: ListSessions :many
@@ -227,7 +77,7 @@ type ListSessionsParams struct {
 }
 
 type ListSessionsRow struct {
-	ID        int64
+	ID        pgtype.UUID
 	Title     pgtype.Text
 	CreatedAt pgtype.Timestamptz
 }
@@ -252,34 +102,19 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]L
 	return items, nil
 }
 
-const setActiveSession = `-- name: SetActiveSession :exec
-UPDATE users
-SET active_session_id = $2
-WHERE id = $1
-`
-
-type SetActiveSessionParams struct {
-	ID              int64
-	ActiveSessionID pgtype.Int8
-}
-
-func (q *Queries) SetActiveSession(ctx context.Context, arg SetActiveSessionParams) error {
-	_, err := q.db.Exec(ctx, setActiveSession, arg.ID, arg.ActiveSessionID)
-	return err
-}
-
 const setSessionTitle = `-- name: SetSessionTitle :exec
 UPDATE sessions
-SET title = $2
-WHERE id = $1
+SET title = $1
+WHERE id = $2 AND user_id = $3
 `
 
 type SetSessionTitleParams struct {
-	ID    int64
-	Title pgtype.Text
+	Title  pgtype.Text
+	ID     pgtype.UUID
+	UserID int64
 }
 
 func (q *Queries) SetSessionTitle(ctx context.Context, arg SetSessionTitleParams) error {
-	_, err := q.db.Exec(ctx, setSessionTitle, arg.ID, arg.Title)
+	_, err := q.db.Exec(ctx, setSessionTitle, arg.Title, arg.ID, arg.UserID)
 	return err
 }

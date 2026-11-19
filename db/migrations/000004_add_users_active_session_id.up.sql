@@ -1,2 +1,2 @@
 ALTER TABLE users
-ADD COLUMN active_session_id BIGINT REFERENCES sessions (id) ON DELETE SET NULL;
+ADD COLUMN active_session_id UUID REFERENCES sessions (id) ON DELETE SET NULL;

@@ -4,34 +4,23 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"rag-chat/internal/appctx"
 	"strconv"
 	"strings"
 	"time"
+
+	"rag-chat/internal/appctx"
 )
 
-type Source interface {
+type DocumentSource interface {
 	Title() string
 	Iter(ctx context.Context) iter.Seq2[string, error]
 }
 
-type BatchEmbedder interface {
+type batchEmbedder interface {
 	EmbedBatch(ctx context.Context, input []string) ([][]float32, error)
 }
 
-type Ingest struct {
-	repo     IngestRepo
-	embedder BatchEmbedder
-}
-
-func NewIngest(repo IngestRepo, embSvc BatchEmbedder) *Ingest {
-	return &Ingest{
-		repo:     repo,
-		embedder: embSvc,
-	}
-}
-
-type IngestRepo interface {
+type documentStore interface {
 	InsertDocument(ctx context.Context, title string, userID int64) (int64, error)
 	DeleteDocument(ctx context.Context, id int64) error
 	InsertChunks(
@@ -43,12 +32,24 @@ type IngestRepo interface {
 	MarkDocumentAsIngested(ctx context.Context, documentID int64) error
 }
 
+type Ingest struct {
+	repo     documentStore
+	embedder batchEmbedder
+}
+
+func NewIngest(repo documentStore, embedder batchEmbedder) *Ingest {
+	return &Ingest{
+		repo:     repo,
+		embedder: embedder,
+	}
+}
+
 var (
 	ChunkSize    = 100
 	ChunkOverlap = 25
 )
 
-func (uc *Ingest) Execute(ctx context.Context, source Source, userID int64) error {
+func (uc *Ingest) Execute(ctx context.Context, source DocumentSource, userID int64) error {
 	logger := appctx.Logger(ctx)
 
 	documentID, err := uc.repo.InsertDocument(ctx, source.Title(), userID)

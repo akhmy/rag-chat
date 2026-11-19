@@ -3,10 +3,11 @@ package domain
 import (
 	"errors"
 	"time"
+	"uuid"
 )
 
 type Session struct {
-	ID        int64
+	ID        uuid.UUID
 	Title     string
 	CreatedAt time.Time
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -23,7 +24,7 @@ const (
 )
 
 type SessionService interface {
-	CreateSession(ctx context.Context, userID int64, title string) (int64, error)
+	CreateSession(ctx context.Context, userID int64, title string) (uuid.UUID, error)
 	ListSessions(ctx context.Context, userID int64, offset, limit int) ([]domain.Session, error)
 }
 
@@ -91,7 +92,7 @@ func (h *handler) applySessionCallback(ctx context.Context, b *bot.Bot, data str
 		})
 		return err
 	default:
-		id, err := strconv.ParseInt(strings.TrimPrefix(data, sessionCallbackPrefix), 10, 64)
+		id, err := uuid.Parse(strings.TrimPrefix(data, sessionCallbackPrefix))
 		if err != nil {
 			return fmt.Errorf("parse session ID: %w", err)
 		}
@@ -127,7 +128,7 @@ func buildSessionKeyboard(sessions []domain.Session, offset int) *models.InlineK
 		}
 		keyboard = append(keyboard, []models.InlineKeyboardButton{{
 			Text:         title,
-			CallbackData: sessionCallbackPrefix + strconv.FormatInt(session.ID, 10),
+			CallbackData: sessionCallbackPrefix + session.ID.String(),
 		}})
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"rag-chat/internal/domain"
 	"rag-chat/internal/postgres/sqlc"
+	"uuid"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -64,12 +65,12 @@ func (repo *UserRepository) GetByTelegramID(ctx context.Context, telegramID int6
 		return domain.User{}, err
 	}
 
-	var activeSessionID *int64
+	var activeSessionID uuid.UUID
 	if user.ActiveSessionID.Valid {
-		value := user.ActiveSessionID.Int64
-		activeSessionID = &value
+		value := user.ActiveSessionID.Bytes
+		activeSessionID = value
 	} else {
-		activeSessionID = nil
+		activeSessionID = uuid.Nil()
 	}
 
 	return domain.User{
@@ -80,11 +81,20 @@ func (repo *UserRepository) GetByTelegramID(ctx context.Context, telegramID int6
 	}, nil
 }
 
-func (repo *UserRepository) SetActiveSession(ctx context.Context, userID int64, sessionID int64) error {
-	return repo.q.SetActiveSession(ctx, sqlc.SetActiveSessionParams{
-		ID:              userID,
-		ActiveSessionID: pgtype.Int8{Int64: sessionID, Valid: true},
+func (repo *UserRepository) SetActiveSession(ctx context.Context, userID int64, sessionID uuid.UUID) error {
+	n, err := repo.q.SetActiveSession(ctx, sqlc.SetActiveSessionParams{
+		UserID:    userID,
+		SessionID: pgtype.UUID{Bytes: sessionID, Valid: true},
 	})
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return domain.ErrSessionNotFound
+	}
+
+	return nil
 }
 
 func (repo *UserRepository) GetActiveSession(ctx context.Context, userID int64) (*domain.Session, error) {
@@ -98,7 +108,7 @@ func (repo *UserRepository) GetActiveSession(ctx context.Context, userID int64) 
 	}
 
 	return &domain.Session{
-		ID:    row.ID,
+		ID:    row.ID.Bytes,
 		Title: row.Title.String,
 	}, nil
 }

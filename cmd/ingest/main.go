@@ -73,7 +73,7 @@ func run() int {
 			return 1
 		}
 
-		var source usecase.Source
+		var source usecase.DocumentSource
 		if strings.HasSuffix(path, ".pdf") {
 			source, err = extract.NewPDFSource(path, title)
 			if err != nil {

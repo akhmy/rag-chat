@@ -9,8 +9,7 @@ WHERE id = $1;
 
 -- name: InsertChunks :exec
 INSERT INTO chunks (document_id, content, embedding)
-SELECT
-    sqlc.arg(document_id),
+SELECT sqlc.arg(document_id),
     unnest(sqlc.arg(contents)::text[]),
     unnest(sqlc.arg(embeddings)::text[]::vector[]);
 
