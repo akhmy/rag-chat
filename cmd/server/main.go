@@ -159,9 +159,9 @@ func buildServer(cfg config.APIConfig, app application, logger *slog.Logger) (*h
 		webhookSecret,
 		downloader,
 		app.ask,
+		app.ingest,
 		app.userSvc,
 		app.sessionSvc,
-		app.ingest,
 		logger,
 	)
 	if err != nil {

@@ -3,37 +3,38 @@ package telegram
 import (
 	"context"
 	"iter"
-	"rag-chat/internal/appctx"
-	"rag-chat/internal/usecase"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+
+	"rag-chat/internal/appctx"
+	"rag-chat/internal/usecase"
 )
 
 type AskUseCase interface {
 	Execute(ctx context.Context, in *usecase.AskInput) iter.Seq2[string, error]
 }
 
-func (h *handler) handleAsk(ctx context.Context, sdk *bot.Bot, upd *models.Update) {
+func (h *handler) handleAsk(ctx context.Context, b *bot.Bot, updateID int64, msg *models.Message) {
 	logger := appctx.Logger(ctx)
-	user := appctx.User(ctx)
+	chatID := msg.Chat.ID
+	draftID := strconv.FormatInt(updateID, 10)
 
 	var answer strings.Builder
 	var lastDraft time.Time
 	for delta, err := range h.ask.Execute(ctx, &usecase.AskInput{
-		UserID:     user.ID,
-		SessionID:  nil,
-		Query:      upd.Message.Text,
+		UserID:     appctx.User(ctx).ID,
+		Query:      msg.Text,
 		TurnsLimit: 10,
 		ChunkLimit: 10,
 	}) {
 		if err != nil {
 			logger.Error("failed to execute ask", "error", err)
-			if _, err := sdk.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: upd.Message.Chat.ID,
+			if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: chatID,
 				Text:   "error",
 			}); err != nil {
 				logger.Error("failed to send message", "error", err)
@@ -47,9 +48,9 @@ func (h *handler) handleAsk(ctx context.Context, sdk *bot.Bot, upd *models.Updat
 			continue
 		}
 
-		if _, err = sdk.SendMessageDraft(ctx, &bot.SendMessageDraftParams{
-			ChatID:  upd.Message.Chat.ID,
-			DraftID: strconv.FormatInt(upd.ID, 10),
+		if _, err := b.SendMessageDraft(ctx, &bot.SendMessageDraftParams{
+			ChatID:  chatID,
+			DraftID: draftID,
 			Text:    answer.String(),
 		}); err != nil {
 			logger.Error("failed to send draft", "error", err)
@@ -64,8 +65,8 @@ func (h *handler) handleAsk(ctx context.Context, sdk *bot.Bot, upd *models.Updat
 		return
 	}
 
-	if _, err := sdk.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    upd.Message.Chat.ID,
+	if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:    chatID,
 		Text:      formatted,
 		ParseMode: models.ParseModeHTML,
 	}); err != nil {

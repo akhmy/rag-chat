@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+
 	"rag-chat/internal/appctx"
 )
 
@@ -23,11 +24,9 @@ func NewDocumentDownloader(client *http.Client, maxBytes int64) *DocumentDownloa
 	}
 }
 
-var (
-	ErrFileTooLarge = errors.New("file too large")
-)
+var ErrFileTooLarge = errors.New("file too large")
 
-func (d *DocumentDownloader) DownloadTemp(ctx context.Context, downloadURL string) (string, error) {
+func (d *DocumentDownloader) DownloadTemp(ctx context.Context, downloadURL string) (path string, err error) {
 	logger := appctx.Logger(ctx)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
@@ -68,11 +67,18 @@ func (d *DocumentDownloader) DownloadTemp(ctx context.Context, downloadURL strin
 	}
 
 	tempPath := file.Name()
-	var isDownloaded bool
 	defer func() {
-		if !isDownloaded {
-			if err := os.Remove(tempPath); err != nil {
-				logger.Warn("failed to remove temp file", "error", err)
+		if closeErr := file.Close(); closeErr != nil {
+			if err == nil {
+				path = ""
+				err = fmt.Errorf("close temp file: %w", closeErr)
+			} else {
+				logger.Warn("failed to close temp file", "error", closeErr)
+			}
+		}
+		if path == "" {
+			if removeErr := os.Remove(tempPath); removeErr != nil {
+				logger.Warn("failed to remove temp file", "error", removeErr)
 			}
 		}
 	}()
@@ -84,7 +90,7 @@ func (d *DocumentDownloader) DownloadTemp(ctx context.Context, downloadURL strin
 
 	if n == d.maxBytes {
 		var extra [1]byte
-		count, err := file.Read(extra[:])
+		count, err := io.ReadFull(resp.Body, extra[:])
 
 		if count > 0 {
 			return "", ErrFileTooLarge
@@ -93,12 +99,6 @@ func (d *DocumentDownloader) DownloadTemp(ctx context.Context, downloadURL strin
 			return "", fmt.Errorf("finish download: %w", err)
 		}
 	}
-
-	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("close temp file: %w", err)
-	}
-
-	isDownloaded = true
 
 	return tempPath, nil
 }
