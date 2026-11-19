@@ -15,6 +15,7 @@ import (
 	"rag-chat/internal/postgres/sqlc"
 	"rag-chat/internal/telegram"
 	"rag-chat/internal/usecase"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,12 +27,15 @@ import (
 	inopenai "rag-chat/internal/openai"
 )
 
-const (
-	serverShutdownTimeout = time.Second * 10
-)
-
 func main() {
 	os.Exit(run())
+}
+
+type application struct {
+	ask        *usecase.Ask
+	ingest     *usecase.Ingest
+	userSvc    *usecase.UserService
+	sessionSvc *usecase.SessionService
 }
 
 func run() int {
@@ -43,26 +47,38 @@ func run() int {
 		return 1
 	}
 
-	pool, err := connectDatabase(context.Background(), cfg.DB)
+	pool, err := buildPool(context.Background(), cfg.DB)
 	if err != nil {
-		logger.Error("failed to initialize database", "error", err)
+		logger.Error("failed to build database pool", "error", err)
 		return 1
 	}
 	defer pool.Close()
 
-	srv, telegramBot, err := buildServer(cfg, sqlc.New(pool), logger)
+	app, err := buildApplication(cfg, sqlc.New(pool))
+	if err != nil {
+		logger.Error("failed to build application", "error", err)
+		return 1
+	}
+
+	srv, b, err := buildServer(cfg, app, logger)
 	if err != nil {
 		logger.Error("failed to initialize server", "error", err)
 		return 1
 	}
 
-	return serve(srv, telegramBot, logger)
+	defer func() {
+		if err := srv.Close(); err != nil {
+			logger.Error("failed to close server", "error", err)
+		}
+	}()
+
+	return serve(context.Background(), srv, b, cfg.Server.ShutdownTimeout, logger)
 }
 
-func connectDatabase(ctx context.Context, cfg config.DBConfig) (*pgxpool.Pool, error) {
+func buildPool(ctx context.Context, cfg config.DBConfig) (*pgxpool.Pool, error) {
 	dbPasswordBytes, err := os.ReadFile(cfg.PasswordFile)
 	if err != nil {
-		return nil, fmt.Errorf("read DB password: %w", err)
+		return nil, fmt.Errorf("read db password: %w", err)
 	}
 
 	pool, err := postgres.Connect(ctx, postgres.Config{
@@ -80,35 +96,55 @@ func connectDatabase(ctx context.Context, cfg config.DBConfig) (*pgxpool.Pool, e
 	return pool, nil
 }
 
-func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*http.Server, *bot.Bot, error) {
+func buildApplication(cfg config.APIConfig, q *sqlc.Queries) (application, error) {
+	// LLM
 	oaiAPIKeyBytes, err := os.ReadFile(cfg.OpenAIAPIKeyFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read OpenAI API key: %w", err)
+		return application{}, fmt.Errorf("read OpenAI API key: %w", err)
 	}
-
 	client := openai.NewClient(option.WithAPIKey(string(oaiAPIKeyBytes)))
+
 	embedder := inopenai.NewEmbedder(client)
 	agent := inopenai.NewAgent(client)
-	titleGen := inopenai.NewTitleGenerator(client)
+	titleGenerator := inopenai.NewTitleGenerator(client)
 
-	sessionRepo := postgres.NewSessionRepository(q)
+	// REPOS
 	userRepo := postgres.NewUserRepository(q)
+	sessionRepo := postgres.NewSessionRepository(q)
+	documentRepo := postgres.NewDocumentRepository(q)
 
+	// SERVICES & USE CASES
 	sessionSvc := usecase.NewSessionService(sessionRepo)
+	ask := usecase.NewAsk(
+		embedder,
+		documentRepo,
+		agent,
+		sessionRepo,
+		titleGenerator,
+		sessionRepo,
+		userRepo,
+	)
+	ingest := usecase.NewIngest(documentRepo, embedder)
+
 	userSvc := usecase.NewUserService(userRepo)
-	documents := postgres.NewDocumentRepository(q)
 
-	askUC := usecase.NewAsk(embedder, documents, agent, sessionRepo, titleGen, sessionRepo, userRepo)
-	askHandler := handler.NewAskHandler(askUC, handler.AskHandlerConfig{
-		Timeout:        time.Second * 15,
-		MaxQueryLength: 2048,
-		RetrieveLimit:  10,
-	})
-	sessionHandler := handler.NewSessionHandler(sessionSvc)
+	return application{
+		ask:        ask,
+		ingest:     ingest,
+		userSvc:    userSvc,
+		sessionSvc: sessionSvc,
+	}, nil
+}
 
+func buildServer(cfg config.APIConfig, app application, logger *slog.Logger) (*http.Server, *bot.Bot, error) {
 	webhookSecretBytes, err := os.ReadFile(cfg.TelegramWebhookSecretFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read Telegram webhook secret: %w", err)
+	}
+
+	webhookSecret := strings.TrimSpace(string(webhookSecretBytes))
+	if len(webhookSecret) == 0 {
+		return nil, nil, fmt.Errorf("missing Telegram webhook secret")
 	}
 
 	botTokenBytes, err := os.ReadFile(cfg.TelegramBotTokenFile)
@@ -118,31 +154,28 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 
 	downloader := telegram.NewDocumentDownloader(&http.Client{Timeout: time.Minute}, 10<<20)
 
-	ingest := usecase.NewIngest(postgres.NewDocumentRepository(q), embedder)
-
 	b, err := telegram.NewBot(
 		string(botTokenBytes),
-		string(webhookSecretBytes),
+		webhookSecret,
 		downloader,
-		askUC,
-		userSvc,
-		sessionSvc,
-		ingest,
+		app.ask,
+		app.userSvc,
+		app.sessionSvc,
+		app.ingest,
 		logger,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create Telegram bot: %w", err)
 	}
 
+	router, err := handler.NewRouter(cfg.TelegramWebhookPath, b.WebhookHandler())
+	if err != nil {
+		return nil, nil, err
+	}
+
 	srv := &http.Server{
-		Addr: cfg.Server.Addr,
-		Handler: handler.NewRouter(
-			askHandler,
-			handler.SignUp(userSvc),
-			sessionHandler,
-			b.WebhookHandler(),
-			logger,
-		),
+		Addr:              cfg.Server.Addr,
+		Handler:           router,
 		ReadTimeout:       cfg.Server.ReadTimeout,
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 		WriteTimeout:      cfg.Server.WriteTimeout,
@@ -152,11 +185,17 @@ func buildServer(cfg config.APIConfig, q *sqlc.Queries, logger *slog.Logger) (*h
 	return srv, b, nil
 }
 
-func serve(srv *http.Server, telegramBot *bot.Bot, logger *slog.Logger) int {
-	notifyCtx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+func serve(
+	ctx context.Context,
+	srv *http.Server,
+	b *bot.Bot,
+	shutdownTimeout time.Duration,
+	logger *slog.Logger,
+) int {
+	notifyCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	go telegramBot.StartWebhook(appctx.WithLogger(notifyCtx, logger))
+	go b.StartWebhook(appctx.WithLogger(notifyCtx, logger))
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -173,13 +212,17 @@ func serve(srv *http.Server, telegramBot *bot.Bot, logger *slog.Logger) int {
 		return 0
 	case <-notifyCtx.Done():
 		logger.Info("shutting down server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		err := srv.Shutdown(shutdownCtx)
+
 		cancel()
+
 		if err != nil {
 			logger.Warn("failed to shutdown server gracefully", "error", err)
 			return 1
 		}
+
 		logger.Info("server shut down gracefully")
 		return 0
 	}

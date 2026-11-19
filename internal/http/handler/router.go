@@ -1,21 +1,26 @@
 package handler
 
 import (
-	"log/slog"
+	"fmt"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
+
 	"rag-chat/internal/http/middleware"
 )
 
-func NewRouter(ask, signUp, sessions, telegram http.Handler, logger *slog.Logger) http.Handler {
+func NewRouter(webhookPath string, webhook http.Handler) (http.Handler, error) {
+	if !strings.HasPrefix(webhookPath, "/") || webhookPath == "/" ||
+		path.Clean(webhookPath) != webhookPath || strings.ContainsAny(webhookPath, "{}") {
+		return nil, fmt.Errorf("TELEGRAM_WEBHOOK_PATH must be a literal absolute path without a trailing slash")
+	}
+	uri, err := url.ParseRequestURI(webhookPath)
+	if err != nil || uri.ForceQuery || uri.RawQuery != "" || uri.EscapedPath() != webhookPath {
+		return nil, fmt.Errorf("TELEGRAM_WEBHOOK_PATH must be a URL path")
+	}
+
 	mux := http.NewServeMux()
-
-	mux.Handle("POST /users/{userID}/sessions/{sessionID}/messages", ask)
-	mux.Handle("POST /users", signUp)
-	mux.Handle("/users/{userID}/sessions", sessions)
-	mux.Handle("POST /telegram-webhook", telegram)
-
-	handler := middleware.Logger(logger)(mux)
-	handler = middleware.Recover(handler)
-
-	return handler
+	mux.Handle("POST "+webhookPath, webhook)
+	return middleware.Recover(mux), nil
 }

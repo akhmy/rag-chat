@@ -21,12 +21,14 @@ type ServerConfig struct {
 	ReadHeaderTimeout time.Duration `env:"SERVER_READ_HEADER_TIMEOUT" envDefault:"5s"`
 	WriteTimeout      time.Duration `env:"SERVER_WRITE_TIMEOUT" envDefault:"5s"`
 	IdleTimeout       time.Duration `env:"SERVER_IDLE_TIMEOUT" envDefault:"5s"`
+	ShutdownTimeout   time.Duration `env:"SERVER_SHUTDOWN_TIMEOUT" envDefault:"10s"`
 }
 
 type APIConfig struct {
 	DB                        DBConfig
 	Server                    ServerConfig
 	OpenAIAPIKeyFile          string `env:"OPENAI_API_KEY_FILE,required"`
+	TelegramWebhookPath       string `env:"TELEGRAM_WEBHOOK_PATH" envDefault:"/tg-webhook-283e43903a25"`
 	TelegramWebhookSecretFile string `env:"TELEGRAM_WEBHOOK_SECRET_FILE,required"`
 	TelegramBotTokenFile      string `env:"TELEGRAM_BOT_TOKEN_FILE,required"`
 }
