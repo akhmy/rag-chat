@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"rag-chat/internal/config"
 	"rag-chat/internal/http/client"
 	"strconv"
 
@@ -28,7 +29,13 @@ func run() int {
 		return 1
 	}
 
-	c := client.New(http.DefaultClient, &url.URL{Scheme: "https", Host: "rag.akhmy.space"})
+	cfg, err := config.ParseEnv[config.CLIConfig]()
+	if err != nil {
+		fmt.Println(err)
+		return 1
+	}
+
+	c := client.New(http.DefaultClient, &url.URL{Scheme: cfg.Scheme, Host: cfg.Host})
 
 	raw := os.Args[1]
 	userID, err := strconv.ParseInt(raw, 10, 64)

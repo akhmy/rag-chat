@@ -37,7 +37,8 @@ type IngestConfig struct {
 }
 
 type CLIConfig struct {
-	Host string `env:"CHAT_HOST,required"`
+	Scheme string `env:"CHAT_SCHEME" envDefault:"https"`
+	Host   string `env:"CHAT_HOST,required"`
 }
 
 func ParseEnv[T APIConfig | IngestConfig | CLIConfig]() (T, error) {
