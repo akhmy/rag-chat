@@ -1,0 +1,8 @@
+.git/
+.idea/
+
+build/
+db/sqlc
+
+README.md
+sqlc.yml

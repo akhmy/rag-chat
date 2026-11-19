@@ -12,12 +12,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.24.4
 
-RUN apk add --no-cache \
-    ca-certificates \
-    poppler-utils \
-    wget
-
-RUN wget -O /usr/local/share/ca-certificates/russian-root-ca.crt \
+RUN apk add --no-cache ca-certificates poppler-utils wget \
+    && wget -O /usr/local/share/ca-certificates/russian-root-ca.crt \
     https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt \
     && update-ca-certificates \
     && apk del wget
