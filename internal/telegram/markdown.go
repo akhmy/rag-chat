@@ -35,7 +35,7 @@ func renderThematicBreak(
 	rc renderer.Context,
 ) (ast.WalkStatus, error) {
 	if entering {
-		_, err := io.WriteString(w, "----\n\n")
+		_, err := io.WriteString(w, "──────────\n\n")
 		return ast.WalkContinue, err
 	}
 	return ast.WalkContinue, nil

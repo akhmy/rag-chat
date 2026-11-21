@@ -2,7 +2,8 @@ package telegram
 
 import (
 	"context"
-	"strconv"
+	"rag-chat/internal/telegram/middleware"
+	"rag-chat/internal/telegram/reply"
 	"strings"
 	"time"
 
@@ -10,44 +11,47 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"rag-chat/internal/appctx"
-	"rag-chat/internal/telegram/middleware"
 	"rag-chat/internal/usecase"
 )
 
-func (h *mainHandler) handleAsk(ctx context.Context, b *bot.Bot, msg *models.Message, updateID int64) {
-	logger := appctx.Logger(ctx)
-	chatID := msg.Chat.ID
-	draftID := strconv.FormatInt(updateID, 10)
+const draftTick time.Duration = time.Second
 
-	var answer strings.Builder
-	var lastDraft time.Time
+func (h *mainHandler) handleAsk(ctx context.Context, b *bot.Bot, msg *models.Message, updID int64) {
+	var (
+		logger = appctx.Logger(ctx)
+		userID = middleware.ContextUserID(ctx)
+
+		chatID = msg.Chat.ID
+		//draftID = strconv.FormatInt(updID, 10)
+
+		answer    strings.Builder
+		lastDraft time.Time
+	)
+
 	for delta, err := range h.ask.Execute(ctx, &usecase.AskInput{
-		UserID:     middleware.ContextUserID(ctx),
+		UserID:     userID,
 		Query:      msg.Text,
 		TurnsLimit: 10,
 		ChunkLimit: 10,
 	}) {
 		if err != nil {
 			logger.Error("failed to execute ask", "error", err)
-			if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: chatID,
-				Text:   "error",
-			}); err != nil {
-				logger.Error("failed to send message", "error", err)
-			}
+			reply.SendMessage(ctx, b, msg.Chat.ID, reply.UnknownError)
 			return
 		}
 
 		answer.WriteString(delta)
 
-		if time.Since(lastDraft) < time.Second {
+		if time.Since(lastDraft) < draftTick {
 			continue
 		}
 
-		if _, err := b.SendMessageDraft(ctx, &bot.SendMessageDraftParams{
+		if _, err := b.SendRichMessageDraft(ctx, &bot.SendRichMessageDraftParams{
 			ChatID:  chatID,
-			DraftID: draftID,
-			Text:    answer.String(),
+			DraftID: int(updID),
+			RichMessage: models.InputRichMessage{
+				Markdown: answer.String(),
+			},
 		}); err != nil {
 			logger.Error("failed to send draft", "error", err)
 		}
@@ -55,17 +59,14 @@ func (h *mainHandler) handleAsk(ctx context.Context, b *bot.Bot, msg *models.Mes
 		lastDraft = time.Now()
 	}
 
-	formatted, err := MarkdownToHTML(answer.String())
-	if err != nil {
-		logger.Error("failed to format html", "error", err)
-		return
-	}
-
-	if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    chatID,
-		Text:      formatted,
-		ParseMode: models.ParseModeHTML,
+	if _, err := b.SendRichMessage(ctx, &bot.SendRichMessageParams{
+		ChatID: chatID,
+		RichMessage: models.InputRichMessage{
+			Markdown: answer.String(),
+		},
 	}); err != nil {
 		logger.Error("failed to send message", "error", err)
+		reply.SendMessage(ctx, b, msg.Chat.ID, reply.UnknownError)
+		return
 	}
 }
