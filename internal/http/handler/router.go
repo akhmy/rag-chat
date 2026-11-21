@@ -13,11 +13,11 @@ import (
 func NewRouter(webhookPath string, webhook http.Handler) (http.Handler, error) {
 	if !strings.HasPrefix(webhookPath, "/") || webhookPath == "/" ||
 		path.Clean(webhookPath) != webhookPath || strings.ContainsAny(webhookPath, "{}") {
-		return nil, fmt.Errorf("TELEGRAM_WEBHOOK_PATH must be a literal absolute path without a trailing slash")
+		return nil, fmt.Errorf("webhook path must be a literal absolute path without a trailing slash")
 	}
 	uri, err := url.ParseRequestURI(webhookPath)
 	if err != nil || uri.ForceQuery || uri.RawQuery != "" || uri.EscapedPath() != webhookPath {
-		return nil, fmt.Errorf("TELEGRAM_WEBHOOK_PATH must be a URL path")
+		return nil, fmt.Errorf("webhook path must be a URL path")
 	}
 
 	mux := http.NewServeMux()
