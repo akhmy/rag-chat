@@ -160,3 +160,32 @@ func (repo *SessionRepository) SetTitle(ctx context.Context, sessionID uuid.UUID
 		UserID: userID,
 	})
 }
+
+func (repo *SessionRepository) Delete(ctx context.Context, sessionID uuid.UUID, userID int64) error {
+	n, err := repo.q.DeleteSession(ctx, sqlc.DeleteSessionParams{
+		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
+		UserID: userID,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrSessionNotFound
+	}
+	return nil
+}
+
+func (repo *SessionRepository) Rename(ctx context.Context, sessionID uuid.UUID, newTitle string, userID int64) error {
+	n, err := repo.q.RenameSession(ctx, sqlc.RenameSessionParams{
+		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
+		UserID: userID,
+		Title:  pgtype.Text{String: newTitle, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrSessionNotFound
+	}
+	return nil
+}

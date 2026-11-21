@@ -27,3 +27,12 @@ WHERE id = $1 AND user_id = $2;
 UPDATE sessions
 SET title = $1
 WHERE id = $2 AND user_id = $3;
+
+-- name: DeleteSession :execrows
+DELETE FROM sessions
+WHERE id = $1 AND user_id = $2;
+
+-- name: RenameSession :execrows
+UPDATE sessions
+SET title = $3
+WHERE id = $1 AND user_id = $2;

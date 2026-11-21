@@ -37,6 +37,24 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (p
 	return active_session_id, err
 }
 
+const deleteSession = `-- name: DeleteSession :execrows
+DELETE FROM sessions
+WHERE id = $1 AND user_id = $2
+`
+
+type DeleteSessionParams struct {
+	ID     pgtype.UUID
+	UserID int64
+}
+
+func (q *Queries) DeleteSession(ctx context.Context, arg DeleteSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSession, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getSession = `-- name: GetSession :one
 SELECT title, user_id, created_at
 FROM sessions
@@ -100,6 +118,26 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]L
 		return nil, err
 	}
 	return items, nil
+}
+
+const renameSession = `-- name: RenameSession :execrows
+UPDATE sessions
+SET title = $3
+WHERE id = $1 AND user_id = $2
+`
+
+type RenameSessionParams struct {
+	ID     pgtype.UUID
+	UserID int64
+	Title  pgtype.Text
+}
+
+func (q *Queries) RenameSession(ctx context.Context, arg RenameSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, renameSession, arg.ID, arg.UserID, arg.Title)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setSessionTitle = `-- name: SetSessionTitle :exec

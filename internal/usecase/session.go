@@ -12,6 +12,8 @@ type sessionStore interface {
 	Create(ctx context.Context, sessionID uuid.UUID, userID int64, title string) (uuid.UUID, error)
 	List(ctx context.Context, userID int64, offset, limit int) ([]domain.Session, error)
 	Get(ctx context.Context, sessionID uuid.UUID, userID int64) (domain.Session, error)
+	Delete(ctx context.Context, sessionID uuid.UUID, userID int64) error
+	Rename(ctx context.Context, sessionID uuid.UUID, newTitle string, userID int64) error
 }
 type SessionService struct {
 	repo sessionStore
@@ -35,4 +37,12 @@ func (s *SessionService) GetSession(ctx context.Context, sessionID uuid.UUID, us
 
 func (s *SessionService) SetSessionTitle(ctx context.Context, sessionID uuid.UUID, userID int64, title string) error {
 	return s.repo.SetTitle(ctx, sessionID, userID, title)
+}
+
+func (s *SessionService) DeleteSession(ctx context.Context, sessionID uuid.UUID, userID int64) error {
+	return s.repo.Delete(ctx, sessionID, userID)
+}
+
+func (s *SessionService) RenameSession(ctx context.Context, sessionID uuid.UUID, newTitle string, userID int64) error {
+	return s.repo.Rename(ctx, sessionID, newTitle, userID)
 }
