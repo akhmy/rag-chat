@@ -7,9 +7,20 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
-	"rag-chat/internal/appctx"
 	"rag-chat/internal/domain"
 )
+
+type userIDKey struct{}
+
+// ContextWithUserID attaches the resolved userID to ctx.
+func ContextWithUserID(ctx context.Context, user int64) context.Context {
+	return context.WithValue(ctx, userIDKey{}, user)
+}
+
+// ContextUserID returns the userID attached by ResolveUser.
+func ContextUserID(ctx context.Context) int64 {
+	return ctx.Value(userIDKey{}).(int64)
+}
 
 type UserResolver interface {
 	GetUserByTelegramID(ctx context.Context, telegramID int64) (domain.User, error)
@@ -44,7 +55,7 @@ func ResolveUser(userSvc UserResolver) bot.Middleware {
 				panic(err)
 			}
 
-			next(appctx.WithUser(ctx, user), b, upd)
+			next(ContextWithUserID(ctx, user.ID), b, upd)
 		}
 	}
 }

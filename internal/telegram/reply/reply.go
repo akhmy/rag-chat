@@ -1,4 +1,4 @@
-package errors
+package reply
 
 import (
 	"context"
@@ -9,12 +9,15 @@ import (
 )
 
 const (
-	ErrUnknown             = "Something went wrong. Please try again later."
-	ErrFileTooLarge        = "File too large."
-	ErrFileTypeUnsupported = "File type unsupported."
+	UnknownError        = "Something went wrong. Please try again later."
+	FileTooLarge        = "File too large."
+	FileTypeUnsupported = "File type unsupported."
+
+	DocumentNotFound = "Document not found."
+	NewTitleIsEmpty  = "New title is empty."
 )
 
-func Send(ctx context.Context, b *bot.Bot, chatID int64, text string) {
+func SendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string) {
 	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
 		Text:   text,

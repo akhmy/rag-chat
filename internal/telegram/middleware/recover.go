@@ -6,7 +6,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
-	tgerrors "rag-chat/internal/telegram/errors"
+	tgerrors "rag-chat/internal/telegram/reply"
 )
 
 func Recover(next bot.HandlerFunc) bot.HandlerFunc {
@@ -15,9 +15,9 @@ func Recover(next bot.HandlerFunc) bot.HandlerFunc {
 			if rec := recover(); rec != nil {
 				switch {
 				case upd.CallbackQuery != nil:
-					tgerrors.AnswerCallbackQuery(ctx, b, upd.CallbackQuery.ID, tgerrors.ErrUnknown)
+					tgerrors.AnswerCallbackQuery(ctx, b, upd.CallbackQuery.ID, tgerrors.UnknownError)
 				case upd.Message != nil:
-					tgerrors.Send(ctx, b, upd.Message.Chat.ID, tgerrors.ErrUnknown)
+					tgerrors.SendMessage(ctx, b, upd.Message.Chat.ID, tgerrors.UnknownError)
 				}
 			}
 		}()

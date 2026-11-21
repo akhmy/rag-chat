@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"iter"
 	"strconv"
 	"strings"
 	"time"
@@ -11,14 +10,11 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"rag-chat/internal/appctx"
+	"rag-chat/internal/telegram/middleware"
 	"rag-chat/internal/usecase"
 )
 
-type AskUseCase interface {
-	Execute(ctx context.Context, in *usecase.AskInput) iter.Seq2[string, error]
-}
-
-func (h *handler) handleAsk(ctx context.Context, b *bot.Bot, updateID int64, msg *models.Message) {
+func (h *mainHandler) handleAsk(ctx context.Context, b *bot.Bot, msg *models.Message, updateID int64) {
 	logger := appctx.Logger(ctx)
 	chatID := msg.Chat.ID
 	draftID := strconv.FormatInt(updateID, 10)
@@ -26,7 +22,7 @@ func (h *handler) handleAsk(ctx context.Context, b *bot.Bot, updateID int64, msg
 	var answer strings.Builder
 	var lastDraft time.Time
 	for delta, err := range h.ask.Execute(ctx, &usecase.AskInput{
-		UserID:     appctx.User(ctx).ID,
+		UserID:     middleware.ContextUserID(ctx),
 		Query:      msg.Text,
 		TurnsLimit: 10,
 		ChunkLimit: 10,

@@ -2,7 +2,13 @@ package telegram
 
 import (
 	"context"
+	"iter"
 	"log/slog"
+	"rag-chat/internal/appctx"
+	"rag-chat/internal/telegram/cache"
+	"rag-chat/internal/telegram/handler"
+	"rag-chat/internal/telegram/reply"
+	"rag-chat/internal/usecase"
 	"strings"
 	"uuid"
 
@@ -12,17 +18,32 @@ import (
 	"rag-chat/internal/telegram/middleware"
 )
 
+type AskUseCase interface {
+	Execute(ctx context.Context, in *usecase.AskInput) iter.Seq2[string, error]
+}
+
+type IngestUseCase interface {
+	Execute(ctx context.Context, source usecase.DocumentSource, userID int64) error
+}
+
 type UserService interface {
 	middleware.UserResolver
 	SetActiveSession(ctx context.Context, userID int64, sessionID uuid.UUID) error
 }
 
-type handler struct {
-	ask        AskUseCase
-	userSvc    UserService
-	sessionSvc SessionService
-	downloader *DocumentDownloader
-	ingest     IngestUseCase
+type sessionRenamer interface {
+	RenameSession(ctx context.Context, sessionID uuid.UUID, newTitle string, userID int64) error
+}
+
+type mainHandler struct {
+	downloader     *DocumentDownloader
+	sessions       *handler.SessionHandler
+	documents      *handler.DocumentHandler
+	sessionRenamer sessionRenamer
+	renameCache    *cache.InMemoryRenameCache
+	ask            AskUseCase
+	ingest         IngestUseCase
+	userSvc        UserService
 }
 
 func NewBot(
@@ -32,43 +53,96 @@ func NewBot(
 	ask AskUseCase,
 	ingest IngestUseCase,
 	userSvc UserService,
-	sessionSvc SessionService,
+	sessionSvc handler.SessionService,
+	documentSvc handler.DocumentService,
+	sessionRenamer sessionRenamer,
 	logger *slog.Logger,
 ) (*bot.Bot, error) {
-	h := &handler{
-		downloader: downloader,
-		ask:        ask,
-		ingest:     ingest,
-		userSvc:    userSvc,
-		sessionSvc: sessionSvc,
+	renameCache := cache.NewInMemoryRenameCache()
+	h := mainHandler{
+		downloader:     downloader,
+		sessions:       handler.NewSessionHandler(sessionSvc, renameCache),
+		documents:      handler.NewDocumentHandler(documentSvc),
+		sessionRenamer: sessionRenamer,
+		renameCache:    renameCache,
+		ask:            ask,
+		ingest:         ingest,
+		userSvc:        userSvc,
 	}
 
 	b, err := bot.New(
 		token,
 		bot.WithWebhookSecretToken(webhookSecret),
 		bot.WithDefaultHandler(h.handleDefault),
-		bot.WithMiddlewares(middleware.Recover, middleware.Logger(logger), middleware.ResolveUser(userSvc)),
+		bot.WithMiddlewares(
+			middleware.Recover,
+			middleware.Logger(logger),
+			middleware.ResolveUser(userSvc),
+		),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/sessions", bot.MatchTypeExact, h.handleSessions)
-	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, sessionCallbackPrefix, bot.MatchTypePrefix, h.handleSessionsCallback)
+	b.RegisterHandler(
+		bot.HandlerTypeMessageText,
+		handler.SessionsCommand,
+		bot.MatchTypeExact,
+		h.sessions.Handle,
+	)
+	b.RegisterHandler(
+		bot.HandlerTypeCallbackQueryData,
+		handler.SessionsCallbackPrefix,
+		bot.MatchTypePrefix,
+		h.sessions.HandleCallback,
+	)
+	b.RegisterHandler(
+		bot.HandlerTypeMessageText,
+		handler.DocumentsCommand,
+		bot.MatchTypeExact,
+		h.documents.Handle,
+	)
+	b.RegisterHandler(
+		bot.HandlerTypeCallbackQueryData,
+		handler.DocumentsCallbackPrefix,
+		bot.MatchTypePrefix,
+		h.documents.HandleCallback,
+	)
 
 	return b, nil
 }
 
-func (h *handler) handleDefault(ctx context.Context, b *bot.Bot, upd *models.Update) {
-	msg := upd.Message
-	if msg == nil {
+func (h *mainHandler) handleDefault(ctx context.Context, b *bot.Bot, upd *models.Update) {
+	if upd.Message == nil {
 		return
 	}
 
+	var (
+		logger = appctx.Logger(ctx)
+		userID = middleware.ContextUserID(ctx)
+	)
+
+	if upd.Message.ReplyToMessage != nil {
+		if sessionID, ok := h.renameCache.Get(upd.Message.Chat.ID, userID, upd.Message.ReplyToMessage.ID); ok {
+			title := upd.Message.Text
+			if strings.TrimSpace(title) == "" {
+				logger.Error("rename title is empty")
+				reply.SendMessage(ctx, b, upd.Message.Chat.ID, reply.NewTitleIsEmpty)
+				return
+			}
+			if err := h.sessionRenamer.RenameSession(ctx, sessionID, title, userID); err != nil {
+				logger.Error("failed to rename session", "error", err)
+				reply.SendMessage(ctx, b, upd.Message.Chat.ID, reply.UnknownError)
+			}
+
+			return
+		}
+	}
+
 	switch {
-	case msg.Document != nil:
-		h.handleDocument(ctx, b, msg)
-	case strings.TrimSpace(msg.Text) != "":
-		h.handleAsk(ctx, b, upd.ID, msg)
+	case upd.Message.Document != nil:
+		h.handleDocument(ctx, b, upd.Message)
+	case strings.TrimSpace(upd.Message.Text) != "":
+		h.handleAsk(ctx, b, upd.Message, upd.ID)
 	}
 }

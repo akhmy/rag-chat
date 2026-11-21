@@ -90,13 +90,14 @@ func (d *DocumentDownloader) DownloadTemp(ctx context.Context, downloadURL strin
 
 	if n == d.maxBytes {
 		var extra [1]byte
+
 		count, err := io.ReadFull(resp.Body, extra[:])
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("finish download: %w", err)
+		}
 
 		if count > 0 {
 			return "", ErrFileTooLarge
-		}
-		if err != nil && !errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("finish download: %w", err)
 		}
 	}
 

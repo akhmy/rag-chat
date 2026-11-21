@@ -32,10 +32,11 @@ func main() {
 }
 
 type application struct {
-	ask        *usecase.Ask
-	ingest     *usecase.Ingest
-	userSvc    *usecase.UserService
-	sessionSvc *usecase.SessionService
+	ask         *usecase.Ask
+	ingest      *usecase.Ingest
+	userSvc     *usecase.UserService
+	sessionSvc  *usecase.SessionService
+	documentSvc *usecase.DocumentService
 }
 
 func run() int {
@@ -127,12 +128,14 @@ func buildApplication(cfg config.APIConfig, q *sqlc.Queries) (application, error
 	ingest := usecase.NewIngest(documentRepo, embedder)
 
 	userSvc := usecase.NewUserService(userRepo)
+	documentSvc := usecase.NewDocumentService(documentRepo)
 
 	return application{
-		ask:        ask,
-		ingest:     ingest,
-		userSvc:    userSvc,
-		sessionSvc: sessionSvc,
+		ask:         ask,
+		ingest:      ingest,
+		userSvc:     userSvc,
+		sessionSvc:  sessionSvc,
+		documentSvc: documentSvc,
 	}, nil
 }
 
@@ -161,6 +164,8 @@ func buildServer(cfg config.APIConfig, app application, logger *slog.Logger) (*h
 		app.ask,
 		app.ingest,
 		app.userSvc,
+		app.sessionSvc,
+		app.documentSvc,
 		app.sessionSvc,
 		logger,
 	)

@@ -11,21 +11,18 @@ import (
 
 	"rag-chat/internal/appctx"
 	"rag-chat/internal/extract"
-	tgerrors "rag-chat/internal/telegram/errors"
-	"rag-chat/internal/usecase"
+	"rag-chat/internal/telegram/middleware"
+	"rag-chat/internal/telegram/reply"
 )
 
-type IngestUseCase interface {
-	Execute(ctx context.Context, source usecase.DocumentSource, userID int64) error
-}
-
-func (h *handler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Message) {
-	logger := appctx.Logger(ctx)
-	doc := msg.Document
-	chatID := msg.Chat.ID
+func (h *mainHandler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Message) {
+	var (
+		logger = appctx.Logger(ctx)
+		chatID = msg.Chat.ID
+		doc    = msg.Document
+	)
 
 	title := strings.TrimSpace(msg.Caption)
-
 	if title == "" {
 		title = doc.FileName
 	}
@@ -33,7 +30,7 @@ func (h *handler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Me
 	file, err := b.GetFile(ctx, &bot.GetFileParams{FileID: doc.FileID})
 	if err != nil {
 		logger.Error("failed to get file", "error", err)
-		tgerrors.Send(ctx, b, chatID, tgerrors.ErrUnknown)
+		reply.SendMessage(ctx, b, chatID, reply.UnknownError)
 		return
 	}
 
@@ -41,9 +38,9 @@ func (h *handler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Me
 	if err != nil {
 		logger.Error("failed to download file", "error", err)
 		if errors.Is(err, ErrFileTooLarge) {
-			tgerrors.Send(ctx, b, chatID, tgerrors.ErrFileTooLarge)
+			reply.SendMessage(ctx, b, chatID, reply.FileTooLarge)
 		} else {
-			tgerrors.Send(ctx, b, chatID, tgerrors.ErrUnknown)
+			reply.SendMessage(ctx, b, chatID, reply.UnknownError)
 		}
 		return
 	}
@@ -58,16 +55,16 @@ func (h *handler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Me
 	if err != nil {
 		logger.Error("failed to open PDF", "error", err)
 		if errors.Is(err, extract.ErrIsNotPDF) {
-			tgerrors.Send(ctx, b, chatID, tgerrors.ErrFileTypeUnsupported)
+			reply.SendMessage(ctx, b, chatID, reply.FileTypeUnsupported)
 		} else {
-			tgerrors.Send(ctx, b, chatID, tgerrors.ErrUnknown)
+			reply.SendMessage(ctx, b, chatID, reply.UnknownError)
 		}
 
 		return
 	}
 
-	if err := h.ingest.Execute(ctx, source, appctx.User(ctx).ID); err != nil {
+	if err := h.ingest.Execute(ctx, source, middleware.ContextUserID(ctx)); err != nil {
 		logger.Error("failed to ingest file", "error", err)
-		tgerrors.Send(ctx, b, chatID, tgerrors.ErrUnknown)
+		reply.SendMessage(ctx, b, chatID, reply.UnknownError)
 	}
 }
