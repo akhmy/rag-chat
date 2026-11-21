@@ -21,8 +21,8 @@ type batchEmbedder interface {
 }
 
 type documentStore interface {
-	InsertDocument(ctx context.Context, title string, userID int64) (int64, error)
-	DeleteDocument(ctx context.Context, id int64) error
+	Create(ctx context.Context, title string, userID int64) (int64, error)
+	Delete(ctx context.Context, id int64, userID int64) error
 	InsertChunks(
 		ctx context.Context,
 		documentID int64,
@@ -52,7 +52,7 @@ var (
 func (uc *Ingest) Execute(ctx context.Context, source DocumentSource, userID int64) error {
 	logger := appctx.Logger(ctx)
 
-	documentID, err := uc.repo.InsertDocument(ctx, source.Title(), userID)
+	documentID, err := uc.repo.Create(ctx, source.Title(), userID)
 	if err != nil {
 		return fmt.Errorf("save document: %w", err)
 	}
@@ -69,7 +69,7 @@ func (uc *Ingest) Execute(ctx context.Context, source DocumentSource, userID int
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second*3)
 		defer cancel()
 
-		if err := uc.repo.DeleteDocument(cleanupCtx, documentID); err != nil {
+		if err := uc.repo.Delete(cleanupCtx, documentID, userID); err != nil {
 			logger.Error("failed to delete document "+strconv.FormatInt(documentID, 10), "error", err)
 		}
 	}()

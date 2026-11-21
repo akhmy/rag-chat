@@ -9,14 +9,47 @@ import (
 	"context"
 )
 
-const deleteDocument = `-- name: DeleteDocument :exec
+const deleteDocument = `-- name: DeleteDocument :execrows
 DELETE FROM documents
-WHERE id = $1
+WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) DeleteDocument(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, deleteDocument, id)
-	return err
+type DeleteDocumentParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) DeleteDocument(ctx context.Context, arg DeleteDocumentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDocument, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getDocument = `-- name: GetDocument :one
+SELECT id, title
+FROM documents
+WHERE user_id = $1
+    AND id = $2
+    AND ingested_at IS NOT NULL
+`
+
+type GetDocumentParams struct {
+	UserID int64
+	ID     int64
+}
+
+type GetDocumentRow struct {
+	ID    int64
+	Title string
+}
+
+func (q *Queries) GetDocument(ctx context.Context, arg GetDocumentParams) (GetDocumentRow, error) {
+	row := q.db.QueryRow(ctx, getDocument, arg.UserID, arg.ID)
+	var i GetDocumentRow
+	err := row.Scan(&i.ID, &i.Title)
+	return i, err
 }
 
 const insertChunks = `-- name: InsertChunks :exec
@@ -53,6 +86,47 @@ func (q *Queries) InsertDocument(ctx context.Context, arg InsertDocumentParams) 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listDocuments = `-- name: ListDocuments :many
+SELECT id, title
+FROM documents
+WHERE user_id = $1
+    AND ingested_at IS NOT NULL
+ORDER BY created_at DESC, id DESC
+OFFSET $2
+LIMIT $3
+`
+
+type ListDocumentsParams struct {
+	UserID int64
+	Offset int32
+	Limit  int32
+}
+
+type ListDocumentsRow struct {
+	ID    int64
+	Title string
+}
+
+func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
+	rows, err := q.db.Query(ctx, listDocuments, arg.UserID, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDocumentsRow
+	for rows.Next() {
+		var i ListDocumentsRow
+		if err := rows.Scan(&i.ID, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listNearestChunks = `-- name: ListNearestChunks :many
