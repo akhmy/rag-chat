@@ -80,9 +80,12 @@ func (repo *SessionRepository) CreateMessage(ctx context.Context, turnID int64, 
 	return nil
 }
 
-func (repo *SessionRepository) ListRecentMessages(ctx context.Context, sessionID uuid.UUID, limit int) ([]domain.Message, error) {
+func (repo *SessionRepository) ListRecentMessages(
+	ctx context.Context, sessionID uuid.UUID, upToID int64, limit int,
+) ([]domain.Message, error) {
 	rows, err := repo.q.ListRecentMessages(ctx, sqlc.ListRecentMessagesParams{
 		SessionID: pgtype.UUID{Bytes: sessionID, Valid: true},
+		UpToID:    upToID,
 		TurnLimit: int32(limit),
 	})
 	if err != nil {

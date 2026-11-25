@@ -6,12 +6,13 @@ import (
 	"iter"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"uuid"
 
 	"rag-chat/internal/appctx"
 	"rag-chat/internal/domain"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type Chunk struct {
@@ -27,15 +28,11 @@ type queryEmbedder interface {
 type turnStore interface {
 	CreateTurn(ctx context.Context, sessionID uuid.UUID, message domain.Message) (int64, error)
 	CreateMessage(ctx context.Context, turnID int64, message domain.Message) error
-	ListRecentMessages(ctx context.Context, sessionID uuid.UUID, limit int) ([]domain.Message, error)
+	ListRecentMessages(ctx context.Context, sessionID uuid.UUID, upToID int64, limit int) ([]domain.Message, error)
 }
 
 type answerStreamer interface {
 	Stream(ctx context.Context, messages []domain.Message) iter.Seq2[string, error]
-}
-
-type chunkRetriever interface {
-	ListNearestChunks(ctx context.Context, query []float32, userID int64, limit int) ([]Chunk, error)
 }
 
 type sessionTitleGenerator interface {
@@ -52,12 +49,16 @@ type activeSessionReader interface {
 	GetActiveSession(ctx context.Context, userID int64) (*domain.Session, error)
 }
 
+type chunkRetriever interface {
+	ListNearestChunks(ctx context.Context, query []float32, userID int64, limit int) ([]Chunk, error)
+}
+
 type Ask struct {
 	embedder       queryEmbedder
 	chunks         chunkRetriever
 	answers        answerStreamer
 	turns          turnStore
-	titles         sessionTitleGenerator
+	titleGenerator sessionTitleGenerator
 	sessions       askSessions
 	activeSessions activeSessionReader
 }
@@ -76,7 +77,7 @@ func NewAsk(
 		chunks:         chunks,
 		answers:        answers,
 		turns:          turns,
-		titles:         titles,
+		titleGenerator: titles,
 		sessions:       sessions,
 		activeSessions: activeSessions,
 	}
@@ -84,69 +85,89 @@ func NewAsk(
 
 type AskInput struct {
 	UserID     int64
-	SessionID  uuid.UUID
 	Query      string
-	TurnsLimit int
+	TurnLimit  int
 	ChunkLimit int
+}
+
+func (uc *Ask) generateTitle(
+	ctx context.Context,
+	timeout time.Duration,
+	query string,
+	sessionID uuid.UUID,
+	userID int64,
+) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+
+	logger := appctx.Logger(ctx)
+
+	title, err := uc.titleGenerator.GenerateTitle(ctx, query)
+	if err != nil {
+		logger.Error("failed to generate title", "error", err)
+		return
+	}
+	if err := uc.sessions.SetSessionTitle(ctx, sessionID, userID, title); err != nil {
+		logger.Error("failed to set title", "error", err)
+	}
 }
 
 func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
-		logger := appctx.Logger(ctx)
-
-		session, err := uc.resolveSession(ctx, in.UserID, in.SessionID)
+		session, err := uc.resolveActiveSession(ctx, in.UserID)
 		if err != nil {
 			yield("", err)
 			return
 		}
 
-		titleCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+		queryMessage := domain.NewMessage(domain.MessageRoleUser, in.Query)
 
-		var wg sync.WaitGroup
-
-		defer func() {
-			cancel()
-			wg.Wait()
-		}()
-
-		if session.Title == "" {
-			wg.Go(func() {
-				title, err := uc.titles.GenerateTitle(titleCtx, in.Query)
-				if err != nil {
-					logger.Error("failed to generate title", "error", err)
-					return
-				}
-				if err := uc.sessions.SetSessionTitle(ctx, session.ID, in.UserID, title); err != nil {
-					logger.Error("failed to set title", "error", err)
-				}
-			})
-		}
-
-		turnID, err := uc.turns.CreateTurn(ctx, session.ID, domain.NewMessage(domain.MessageRoleUser, in.Query))
+		turnID, err := uc.turns.CreateTurn(ctx, session.ID, queryMessage)
 		if err != nil {
 			yield("", fmt.Errorf("create turn: %w", err))
 			return
 		}
 
-		messages, err := uc.turns.ListRecentMessages(ctx, session.ID, in.TurnsLimit)
-		if err != nil {
-			yield("", fmt.Errorf("list recent messages: %w", err))
+		if session.Title == "" {
+			go uc.generateTitle(ctx, time.Second*5, in.Query, session.ID, in.UserID)
+		}
+
+		g, gCtx := errgroup.WithContext(ctx)
+
+		var chunks []Chunk
+		g.Go(func() error {
+			embedding, err := uc.embedder.Embed(gCtx, in.Query)
+			if err != nil {
+				return fmt.Errorf("embed query: %w", err)
+			}
+
+			v, err := uc.chunks.ListNearestChunks(gCtx, embedding, in.UserID, 10)
+			if err != nil {
+				return fmt.Errorf("search chunks: %w", err)
+			}
+
+			chunks = v
+			return nil
+		})
+
+		var messages []domain.Message
+		g.Go(func() error {
+			v, err := uc.turns.ListRecentMessages(gCtx, session.ID, turnID, in.TurnLimit-1)
+			if err != nil {
+				return fmt.Errorf("list recent messages: %w", err)
+			}
+
+			messages = v
+			return nil
+		})
+
+		if err := g.Wait(); err != nil {
+			yield("", err)
 			return
 		}
 
-		embedding, err := uc.embedder.Embed(ctx, in.Query)
-		if err != nil {
-			yield("", fmt.Errorf("embed query: %w", err))
-			return
-		}
-
-		chunks, err := uc.chunks.ListNearestChunks(ctx, embedding, in.UserID, 10)
-		if err != nil {
-			yield("", fmt.Errorf("list nearest chunks: %w", err))
-			return
-		}
-
-		messages[len(messages)-1].Content = buildQuery(messages[len(messages)-1].Content, chunks)
+		queryMessage.Content = buildQuery(queryMessage.Content, chunks)
+		messages = append(messages, queryMessage)
 
 		var answer strings.Builder
 		for delta, err := range uc.answers.Stream(ctx, messages) {
@@ -168,19 +189,10 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 			return
 		}
 
-		wg.Wait()
 	}
 }
 
-func (uc *Ask) resolveSession(ctx context.Context, userID int64, sessionID uuid.UUID) (domain.Session, error) {
-	if sessionID != uuid.Nil() {
-		session, err := uc.sessions.GetSession(ctx, sessionID, userID)
-		if err != nil {
-			return domain.Session{}, fmt.Errorf("get session: %w", err)
-		}
-		return session, nil
-	}
-
+func (uc *Ask) resolveActiveSession(ctx context.Context, userID int64) (domain.Session, error) {
 	session, err := uc.activeSessions.GetActiveSession(ctx, userID)
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("get active session: %w", err)

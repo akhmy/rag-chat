@@ -56,12 +56,14 @@ func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (int64, 
 }
 
 const listRecentMessages = `-- name: ListRecentMessages :many
-WITH recent_turns AS (
-    SELECT id
-    FROM turns
-    WHERE session_id = $1
-    ORDER BY created_at DESC, id DESC
-    LIMIT $2
+WITH
+    recent_turns AS (
+        SELECT id
+        FROM turns
+        WHERE session_id = $1
+            AND turns.id < $2
+        ORDER BY created_at DESC, id DESC
+        LIMIT $3
     )
 SELECT
     m.id,
@@ -69,12 +71,13 @@ SELECT
     m.content,
     m.created_at
 FROM messages m
-         JOIN recent_turns rt ON rt.id = m.turn_id
+    JOIN recent_turns rt ON rt.id = m.turn_id
 ORDER BY m.created_at ASC, m.id ASC
 `
 
 type ListRecentMessagesParams struct {
 	SessionID pgtype.UUID
+	UpToID    int64
 	TurnLimit int32
 }
 
@@ -86,7 +89,7 @@ type ListRecentMessagesRow struct {
 }
 
 func (q *Queries) ListRecentMessages(ctx context.Context, arg ListRecentMessagesParams) ([]ListRecentMessagesRow, error) {
-	rows, err := q.db.Query(ctx, listRecentMessages, arg.SessionID, arg.TurnLimit)
+	rows, err := q.db.Query(ctx, listRecentMessages, arg.SessionID, arg.UpToID, arg.TurnLimit)
 	if err != nil {
 		return nil, err
 	}

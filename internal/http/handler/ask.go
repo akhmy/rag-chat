@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
 )
 
 type AskRequest struct {
@@ -78,13 +77,6 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID, err := uuid.Parse(r.PathValue("sessionID"))
-	if err != nil {
-		logger.Error("failed to parse session ID")
-		http.Error(w, ErrInvalidSessionID.Error(), http.StatusBadRequest)
-		return
-	}
-
 	var req AskRequest
 	err = json.UnmarshalRead(r.Body, &req)
 	if err != nil {
@@ -114,9 +106,8 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var message strings.Builder
 	for delta, err := range h.ask.Execute(askCtx, &usecase.AskInput{
 		UserID:     userID,
-		SessionID:  sessionID,
 		Query:      req.Message,
-		TurnsLimit: 10,
+		TurnLimit:  10,
 		ChunkLimit: h.config.RetrieveLimit,
 	}) {
 		if err != nil {

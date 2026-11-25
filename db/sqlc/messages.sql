@@ -17,12 +17,14 @@ INSERT INTO messages (turn_id, role, content)
 VALUES ($1, $2, $3);
 
 -- name: ListRecentMessages :many
-WITH recent_turns AS (
-    SELECT id
-    FROM turns
-    WHERE session_id = sqlc.arg(session_id)
-    ORDER BY created_at DESC, id DESC
-    LIMIT sqlc.arg(turn_limit)
+WITH
+    recent_turns AS (
+        SELECT id
+        FROM turns
+        WHERE session_id = sqlc.arg(session_id)
+            AND turns.id < sqlc.arg(up_to_id)
+        ORDER BY created_at DESC, id DESC
+        LIMIT sqlc.arg(turn_limit)
     )
 SELECT
     m.id,
@@ -30,5 +32,5 @@ SELECT
     m.content,
     m.created_at
 FROM messages m
-         JOIN recent_turns rt ON rt.id = m.turn_id
+    JOIN recent_turns rt ON rt.id = m.turn_id
 ORDER BY m.created_at ASC, m.id ASC;

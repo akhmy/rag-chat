@@ -31,7 +31,7 @@ func (h *mainHandler) handleAsk(ctx context.Context, b *bot.Bot, msg *models.Mes
 	for delta, err := range h.ask.Execute(ctx, &usecase.AskInput{
 		UserID:     userID,
 		Query:      msg.Text,
-		TurnsLimit: 10,
+		TurnLimit:  10,
 		ChunkLimit: 10,
 	}) {
 		if err != nil {
