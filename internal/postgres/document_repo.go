@@ -95,13 +95,18 @@ func (repo *DocumentRepository) MarkDocumentAsIngested(
 	return repo.q.MarkDocumentAsIngested(ctx, documentID)
 }
 
-func (repo *DocumentRepository) ListNearestChunks(
-	ctx context.Context, query []float32, userID int64, limit int,
+func (repo *DocumentRepository) SearchChunks(
+	ctx context.Context,
+	queryText string,
+	queryEmbedding []float32,
+	limit int,
+	userID int64,
 ) ([]usecase.Chunk, error) {
-	rows, err := repo.q.ListNearestChunks(ctx, sqlc.ListNearestChunksParams{
-		Query:      pgvector.NewVector(query).String(),
-		UserID:     userID,
-		ChunkLimit: int32(limit),
+	rows, err := repo.q.SearchChunks(ctx, sqlc.SearchChunksParams{
+		QueryText:      queryText,
+		QueryEmbedding: pgvector.NewVector(queryEmbedding),
+		ChunkLimit:     int32(limit),
+		UserID:         userID,
 	})
 	if err != nil {
 		return nil, err
@@ -110,9 +115,12 @@ func (repo *DocumentRepository) ListNearestChunks(
 	chunks := make([]usecase.Chunk, 0, len(rows))
 	for _, row := range rows {
 		chunks = append(chunks, usecase.Chunk{
-			Title:    row.Title,
-			Content:  row.Content,
-			Distance: row.Distance,
+			Title:   row.Title,
+			Content: row.Content,
+
+			VectorSearchRank: int(row.VectorRank),
+			TextSearchRank:   int(row.TextRank),
+			RFFScore:         row.Rrf,
 		})
 	}
 

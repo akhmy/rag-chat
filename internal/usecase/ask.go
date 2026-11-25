@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -16,9 +17,12 @@ import (
 )
 
 type Chunk struct {
-	Title    string
-	Content  string
-	Distance float64
+	Title   string
+	Content string
+
+	VectorSearchRank int
+	TextSearchRank   int
+	RFFScore         float64
 }
 
 type queryEmbedder interface {
@@ -49,37 +53,50 @@ type activeSessionReader interface {
 	GetActiveSession(ctx context.Context, userID int64) (*domain.Session, error)
 }
 
-type chunkRetriever interface {
-	ListNearestChunks(ctx context.Context, query []float32, userID int64, limit int) ([]Chunk, error)
+type keywordRetriever interface {
+	RetrieveKeywords(ctx context.Context, query string) (string, error)
+}
+
+type chunkSearcher interface {
+	SearchChunks(
+		ctx context.Context,
+		queryText string,
+		queryEmbedding []float32,
+		limit int,
+		userID int64,
+	) ([]Chunk, error)
 }
 
 type Ask struct {
-	embedder       queryEmbedder
-	chunks         chunkRetriever
-	answers        answerStreamer
-	turns          turnStore
-	titleGenerator sessionTitleGenerator
-	sessions       askSessions
-	activeSessions activeSessionReader
+	embedder         queryEmbedder
+	chunkSearcher    chunkSearcher
+	answers          answerStreamer
+	turns            turnStore
+	titleGenerator   sessionTitleGenerator
+	sessions         askSessions
+	activeSessions   activeSessionReader
+	keywordRetriever keywordRetriever
 }
 
 func NewAsk(
 	embedder queryEmbedder,
-	chunks chunkRetriever,
+	chunkSearcher chunkSearcher,
 	answers answerStreamer,
 	turns turnStore,
 	titles sessionTitleGenerator,
 	sessions askSessions,
 	activeSessions activeSessionReader,
+	keywordRetriever keywordRetriever,
 ) *Ask {
 	return &Ask{
-		embedder:       embedder,
-		chunks:         chunks,
-		answers:        answers,
-		turns:          turns,
-		titleGenerator: titles,
-		sessions:       sessions,
-		activeSessions: activeSessions,
+		embedder:         embedder,
+		chunkSearcher:    chunkSearcher,
+		answers:          answers,
+		turns:            turns,
+		titleGenerator:   titles,
+		sessions:         sessions,
+		activeSessions:   activeSessions,
+		keywordRetriever: keywordRetriever,
 	}
 }
 
@@ -88,6 +105,51 @@ type AskInput struct {
 	Query      string
 	TurnLimit  int
 	ChunkLimit int
+}
+
+func (uc *Ask) SearchChunks(ctx context.Context, query string, limit int, userID int64) ([]Chunk, error) {
+	logger := appctx.Logger(ctx)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	var keywords string
+	g.Go(func() error {
+		v, err := uc.keywordRetriever.RetrieveKeywords(gCtx, query)
+		if err != nil {
+			logger.Error("failed to retrieve keywords", "error", err)
+			keywords = query
+		} else {
+			keywords = v
+		}
+
+		return nil
+	})
+
+	var embedding []float32
+	g.Go(func() error {
+		v, err := uc.embedder.Embed(gCtx, query)
+		if err != nil {
+			return fmt.Errorf("embed query: %w", err)
+		}
+
+		embedding = v
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("keywords retrieved", "keywords", keywords)
+	}
+
+	chunks, err := uc.chunkSearcher.SearchChunks(ctx, keywords, embedding, limit, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return chunks, nil
 }
 
 func (uc *Ask) generateTitle(
@@ -114,6 +176,8 @@ func (uc *Ask) generateTitle(
 
 func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
+		logger := appctx.Logger(ctx)
+
 		session, err := uc.resolveActiveSession(ctx, in.UserID)
 		if err != nil {
 			yield("", err)
@@ -136,12 +200,7 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 
 		var chunks []Chunk
 		g.Go(func() error {
-			embedding, err := uc.embedder.Embed(gCtx, in.Query)
-			if err != nil {
-				return fmt.Errorf("embed query: %w", err)
-			}
-
-			v, err := uc.chunks.ListNearestChunks(gCtx, embedding, in.UserID, 10)
+			v, err := uc.SearchChunks(ctx, in.Query, in.ChunkLimit, in.UserID)
 			if err != nil {
 				return fmt.Errorf("search chunks: %w", err)
 			}
@@ -164,6 +223,10 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 		if err := g.Wait(); err != nil {
 			yield("", err)
 			return
+		}
+
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logChunks(ctx, logger.With("turn_id", turnID), chunks)
 		}
 
 		queryMessage.Content = buildQuery(queryMessage.Content, chunks)
@@ -189,6 +252,29 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 			return
 		}
 
+	}
+}
+
+func logChunks(ctx context.Context, logger *slog.Logger, chunks []Chunk) {
+	logger.DebugContext(ctx, "retrieved chunks", "count", len(chunks))
+
+	for i, chunk := range chunks {
+		preview := []rune(strings.Join(strings.Fields(chunk.Content), " "))
+		text := string(preview)
+
+		if len(preview) > 120 {
+			text = string(preview[:120]) + "..."
+		}
+
+		logger.DebugContext(
+			ctx, "retrieved chunk",
+			"pos", i+1,
+			"vector_rank", chunk.VectorSearchRank,
+			"text_rank", chunk.TextSearchRank,
+			"rff", chunk.RFFScore,
+			"title", chunk.Title,
+			"preview", text,
+		)
 	}
 }
 

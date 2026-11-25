@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
 
 var (
@@ -33,6 +34,8 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	poolCfg.ConnConfig.Host = cfg.Host
 	poolCfg.ConnConfig.Port = uint16(cfg.Port)
 	poolCfg.ConnConfig.Database = cfg.Name
+
+	poolCfg.AfterConnect = pgxvec.RegisterTypes
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

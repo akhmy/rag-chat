@@ -40,7 +40,12 @@ type application struct {
 }
 
 func run() int {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	var opts slog.HandlerOptions
+	if v := os.Getenv("LOG_DEBUG"); v == "true" {
+		opts.Level = slog.LevelDebug
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &opts))
 
 	cfg, err := config.ParseEnv[config.APIConfig]()
 	if err != nil {
@@ -108,6 +113,7 @@ func buildApplication(cfg config.APIConfig, q *sqlc.Queries) (application, error
 	embedder := inopenai.NewEmbedder(client)
 	agent := inopenai.NewAgent(client)
 	titleGenerator := inopenai.NewTitleGenerator(client)
+	keywordRetriever := inopenai.NewKeywordRetriever(client)
 
 	// REPOS
 	userRepo := postgres.NewUserRepository(q)
@@ -124,6 +130,7 @@ func buildApplication(cfg config.APIConfig, q *sqlc.Queries) (application, error
 		titleGenerator,
 		sessionSvc,
 		userRepo,
+		keywordRetriever,
 	)
 	ingest := usecase.NewIngest(documentRepo, embedder)
 

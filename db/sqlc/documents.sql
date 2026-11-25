@@ -14,18 +14,6 @@ UPDATE documents
 SET ingested_at = now()
 WHERE id = $1;
 
--- name: ListNearestChunks :many
-SELECT
-    d.title,
-    c.content,
-    (c.embedding <=> sqlc.arg(query)::text::vector)::float8 AS distance
-FROM chunks c
-JOIN documents d ON d.id = c.document_id
-WHERE d.user_id = sqlc.arg(user_id) AND
-      d.ingested_at IS NOT NULL
-ORDER BY distance
-LIMIT sqlc.arg(chunk_limit);
-
 -- name: ListDocuments :many
 SELECT id, title
 FROM documents

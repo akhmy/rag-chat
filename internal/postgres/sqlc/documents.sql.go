@@ -129,51 +129,6 @@ func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([
 	return items, nil
 }
 
-const listNearestChunks = `-- name: ListNearestChunks :many
-SELECT
-    d.title,
-    c.content,
-    (c.embedding <=> $1::text::vector)::float8 AS distance
-FROM chunks c
-JOIN documents d ON d.id = c.document_id
-WHERE d.user_id = $2 AND
-      d.ingested_at IS NOT NULL
-ORDER BY distance
-LIMIT $3
-`
-
-type ListNearestChunksParams struct {
-	Query      string
-	UserID     int64
-	ChunkLimit int32
-}
-
-type ListNearestChunksRow struct {
-	Title    string
-	Content  string
-	Distance float64
-}
-
-func (q *Queries) ListNearestChunks(ctx context.Context, arg ListNearestChunksParams) ([]ListNearestChunksRow, error) {
-	rows, err := q.db.Query(ctx, listNearestChunks, arg.Query, arg.UserID, arg.ChunkLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListNearestChunksRow
-	for rows.Next() {
-		var i ListNearestChunksRow
-		if err := rows.Scan(&i.Title, &i.Content, &i.Distance); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const markDocumentAsIngested = `-- name: MarkDocumentAsIngested :exec
 UPDATE documents
 SET ingested_at = now()

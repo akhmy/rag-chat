@@ -55,10 +55,11 @@ func (ns NullMessageRole) Value() (driver.Value, error) {
 }
 
 type Chunk struct {
-	ID         int64
-	DocumentID int64
-	Content    string
-	Embedding  pgvector.Vector
+	ID           int64
+	DocumentID   int64
+	Content      string
+	Embedding    pgvector.Vector
+	SearchVector interface{}
 }
 
 type Document struct {
