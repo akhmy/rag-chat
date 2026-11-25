@@ -4,18 +4,17 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strings"
-
-	"github.com/go-telegram/bot"
-	"github.com/go-telegram/bot/models"
-
 	"rag-chat/internal/appctx"
 	"rag-chat/internal/extract"
 	"rag-chat/internal/telegram/middleware"
 	"rag-chat/internal/telegram/reply"
+	"strings"
+
+	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 )
 
-func (h *mainHandler) handleDocument(ctx context.Context, b *bot.Bot, msg *models.Message) {
+func (h *mainHandler) handleIngest(ctx context.Context, b *bot.Bot, msg *models.Message) {
 	var (
 		logger = appctx.Logger(ctx)
 		chatID = msg.Chat.ID

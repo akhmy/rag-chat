@@ -166,7 +166,6 @@ func buildServer(cfg config.APIConfig, app application, logger *slog.Logger) (*h
 		app.userSvc,
 		app.sessionSvc,
 		app.documentSvc,
-		app.sessionSvc,
 		logger,
 	)
 	if err != nil {

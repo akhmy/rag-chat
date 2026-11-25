@@ -35,6 +35,11 @@ type sessionRenamer interface {
 	RenameSession(ctx context.Context, sessionID uuid.UUID, newTitle string, userID int64) error
 }
 
+type sessionService interface {
+	handler.SessionService
+	sessionRenamer
+}
+
 type mainHandler struct {
 	downloader     *DocumentDownloader
 	sessions       *handler.SessionHandler
@@ -53,17 +58,17 @@ func NewBot(
 	ask AskUseCase,
 	ingest IngestUseCase,
 	userSvc UserService,
-	sessionSvc handler.SessionService,
+	sessionSvc sessionService,
 	documentSvc handler.DocumentService,
-	sessionRenamer sessionRenamer,
 	logger *slog.Logger,
 ) (*bot.Bot, error) {
 	renameCache := cache.NewInMemoryRenameCache()
+
 	h := mainHandler{
 		downloader:     downloader,
 		sessions:       handler.NewSessionHandler(sessionSvc, renameCache),
 		documents:      handler.NewDocumentHandler(documentSvc),
-		sessionRenamer: sessionRenamer,
+		sessionRenamer: sessionSvc,
 		renameCache:    renameCache,
 		ask:            ask,
 		ingest:         ingest,
@@ -141,7 +146,7 @@ func (h *mainHandler) handleDefault(ctx context.Context, b *bot.Bot, upd *models
 
 	switch {
 	case upd.Message.Document != nil:
-		h.handleDocument(ctx, b, upd.Message)
+		h.handleIngest(ctx, b, upd.Message)
 	case strings.TrimSpace(upd.Message.Text) != "":
 		h.handleAsk(ctx, b, upd.Message, upd.ID)
 	}

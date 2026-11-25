@@ -57,7 +57,7 @@ func (h *DocumentHandler) Handle(ctx context.Context, b *bot.Bot, upd *models.Up
 		Text:   "No documents found, create one by uploading a file",
 	}
 	if len(documents) > 0 {
-		params.Text = "documents:"
+		params.Text = "Pick the document you want to edit."
 		params.ReplyMarkup = buildDocumentsKeyboard(documents, 0)
 	}
 	if _, err := b.SendMessage(ctx, params); err != nil {
@@ -91,7 +91,10 @@ func (h *DocumentHandler) applyCallback(ctx context.Context, b *bot.Bot, cq *mod
 	userID := middleware.ContextUserID(ctx)
 	msg := cq.Message.Message
 
-	var keyboard *models.InlineKeyboardMarkup
+	var (
+		text     string
+		keyboard *models.InlineKeyboardMarkup
+	)
 
 	switch {
 	case strings.HasPrefix(cq.Data, documentsListPrefix):
@@ -104,9 +107,13 @@ func (h *DocumentHandler) applyCallback(ctx context.Context, b *bot.Bot, cq *mod
 			return fmt.Errorf("list documents: %w", err)
 		}
 		if len(documents) == 0 {
-			return fmt.Errorf("no documents at offset %d", offset)
+			text = "No documents found, create one by uploading a file."
+		} else {
+			text = "Pick the document you want to edit."
 		}
+
 		keyboard = buildDocumentsKeyboard(documents, offset)
+
 	case strings.HasPrefix(cq.Data, documentsGetPrefix):
 		id, err := strconv.ParseInt(strings.TrimPrefix(cq.Data, documentsGetPrefix), 10, 64)
 		if err != nil {
@@ -116,7 +123,10 @@ func (h *DocumentHandler) applyCallback(ctx context.Context, b *bot.Bot, cq *mod
 		if err != nil {
 			return fmt.Errorf("get document: %w", err)
 		}
+
+		text = "Document \"" + document.Title + "\" picked."
 		keyboard = buildDocumentKeyboard(document)
+
 	case strings.HasPrefix(cq.Data, documentsDeletePrefix):
 		id, err := strconv.ParseInt(strings.TrimPrefix(cq.Data, documentsDeletePrefix), 10, 64)
 		if err != nil {
@@ -125,13 +135,24 @@ func (h *DocumentHandler) applyCallback(ctx context.Context, b *bot.Bot, cq *mod
 		if err := h.svc.DeleteDocument(ctx, id, userID); err != nil {
 			return fmt.Errorf("delete document: %w", err)
 		}
+
+		text = "Document deleted successfully."
+		keyboard = &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{
+				{
+					{Text: "<", CallbackData: documentsListPrefix + "0"},
+				},
+			},
+		}
+
 	default:
 		return fmt.Errorf("invalid document callback %q", cq.Data)
 	}
 
-	if _, err := b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
+	if _, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
 		ChatID:      msg.Chat.ID,
 		MessageID:   msg.ID,
+		Text:        text,
 		ReplyMarkup: keyboard,
 	}); err != nil {
 		return fmt.Errorf("edit document keyboard: %w", err)
@@ -146,7 +167,7 @@ func buildDocumentKeyboard(document domain.Document) *models.InlineKeyboardMarku
 				{Text: "Delete", CallbackData: documentsDeletePrefix + strconv.FormatInt(document.ID, 10)},
 			},
 			{
-				{Text: "Back", CallbackData: documentsListPrefix + "0"},
+				{Text: "<", CallbackData: documentsListPrefix + "0"},
 			},
 		},
 	}
