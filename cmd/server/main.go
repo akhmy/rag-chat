@@ -130,6 +130,7 @@ func buildApplication(cfg config.APIConfig, q *sqlc.Queries) (application, error
 		titleGenerator,
 		sessionSvc,
 		userRepo,
+		userRepo,
 		keywordRetriever,
 	)
 	ingest := usecase.NewIngest(documentRepo, embedder)

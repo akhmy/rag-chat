@@ -5,6 +5,7 @@ import (
 	"errors"
 	"rag-chat/internal/domain"
 	"rag-chat/internal/postgres/sqlc"
+	"time"
 	"uuid"
 
 	"github.com/jackc/pgerrcode"
@@ -111,4 +112,18 @@ func (repo *UserRepository) GetActiveSession(ctx context.Context, userID int64) 
 		ID:    row.ID.Bytes,
 		Title: row.Title.String,
 	}, nil
+}
+
+func (repo *UserRepository) AddTokenUsage(ctx context.Context, userID int64, used int64) error {
+	return repo.q.AddTokenUsage(ctx, sqlc.AddTokenUsageParams{
+		UserID: userID,
+		Tokens: used,
+	})
+}
+
+func (repo *UserRepository) GetTokenUsage(ctx context.Context, userID int64, since time.Time) (int64, error) {
+	return repo.q.GetTokenUsage(ctx, sqlc.GetTokenUsageParams{
+		UserID: userID,
+		UsedAt: pgtype.Timestamptz{Time: since, Valid: true},
+	})
 }

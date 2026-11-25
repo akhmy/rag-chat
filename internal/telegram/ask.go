@@ -29,10 +29,12 @@ func (h *mainHandler) handleAsk(ctx context.Context, b *bot.Bot, msg *models.Mes
 	)
 
 	for delta, err := range h.ask.Execute(ctx, &usecase.AskInput{
-		UserID:     userID,
-		Query:      msg.Text,
-		TurnLimit:  10,
-		ChunkLimit: 10,
+		UserID:           userID,
+		Query:            msg.Text,
+		TurnLimit:        10,
+		ChunkLimit:       10,
+		TokenUsageLimit:  10_000,
+		TokenUsageWindow: time.Hour,
 	}) {
 		if err != nil {
 			logger.Error("failed to execute ask", "error", err)

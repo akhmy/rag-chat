@@ -7,6 +7,7 @@ import (
 	"iter"
 	"rag-chat/internal/appctx"
 	"rag-chat/internal/domain"
+	"rag-chat/internal/usecase"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
@@ -62,10 +63,10 @@ func (agt *Agent) Ask(ctx context.Context, messages []domain.Message) (string, e
 	return res.OutputText(), nil
 }
 
-func (agt *Agent) Stream(ctx context.Context, messages []domain.Message) iter.Seq2[string, error] {
+func (agt *Agent) Stream(ctx context.Context, messages []domain.Message) iter.Seq2[usecase.AnswerEvent, error] {
 	logger := appctx.Logger(ctx)
 
-	return func(yield func(string, error) bool) {
+	return func(yield func(usecase.AnswerEvent, error) bool) {
 		input := make(responses.ResponseInputParam, 0, len(messages))
 		for _, m := range messages {
 			var role responses.EasyInputMessageRole
@@ -76,7 +77,7 @@ func (agt *Agent) Stream(ctx context.Context, messages []domain.Message) iter.Se
 			case domain.MessageRoleAssistant:
 				role = responses.EasyInputMessageRoleAssistant
 			default:
-				yield("", ErrInvalidRole)
+				yield(usecase.AnswerEvent{}, ErrInvalidRole)
 				return
 			}
 
@@ -104,24 +105,28 @@ func (agt *Agent) Stream(ctx context.Context, messages []domain.Message) iter.Se
 			switch event.Type {
 			case "response.output_text.delta":
 				delta := event.AsResponseOutputTextDelta().Delta
-				if !yield(delta, nil) {
+				if !yield(usecase.AnswerEvent{Delta: delta}, nil) {
 					return
 				}
 			case "response.completed":
 				completed = true
+				tokens := event.AsResponseCompleted().Response.Usage.TotalTokens
+				if !yield(usecase.AnswerEvent{TotalTokens: &tokens}, nil) {
+					return
+				}
 			case "response.failed", "response.incomplete", "error":
-				yield("", fmt.Errorf("generation failed: %s", event.Type))
+				yield(usecase.AnswerEvent{}, fmt.Errorf("generation failed: %s", event.Type))
 				return
 			}
 		}
 
 		if err := stream.Err(); err != nil {
-			yield("", fmt.Errorf("read stream: %w", err))
+			yield(usecase.AnswerEvent{}, fmt.Errorf("read stream: %w", err))
 			return
 		}
 
 		if !completed {
-			yield("", errors.New("stream ended before response completed"))
+			yield(usecase.AnswerEvent{}, errors.New("stream ended before response completed"))
 			return
 		}
 	}

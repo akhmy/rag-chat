@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -35,8 +36,13 @@ type turnStore interface {
 	ListRecentMessages(ctx context.Context, sessionID uuid.UUID, upToID int64, limit int) ([]domain.Message, error)
 }
 
+type AnswerEvent struct {
+	Delta       string
+	TotalTokens *int64
+}
+
 type answerStreamer interface {
-	Stream(ctx context.Context, messages []domain.Message) iter.Seq2[string, error]
+	Stream(ctx context.Context, messages []domain.Message) iter.Seq2[AnswerEvent, error]
 }
 
 type sessionTitleGenerator interface {
@@ -51,6 +57,11 @@ type askSessions interface {
 
 type activeSessionReader interface {
 	GetActiveSession(ctx context.Context, userID int64) (*domain.Session, error)
+}
+
+type tokenUsageStore interface {
+	AddTokenUsage(ctx context.Context, userID int64, used int64) error
+	GetTokenUsage(ctx context.Context, userID int64, since time.Time) (int64, error)
 }
 
 type keywordRetriever interface {
@@ -74,6 +85,7 @@ type Ask struct {
 	turns            turnStore
 	titleGenerator   sessionTitleGenerator
 	sessions         askSessions
+	tokenUsage       tokenUsageStore
 	activeSessions   activeSessionReader
 	keywordRetriever keywordRetriever
 }
@@ -86,6 +98,7 @@ func NewAsk(
 	titles sessionTitleGenerator,
 	sessions askSessions,
 	activeSessions activeSessionReader,
+	tokenUsage tokenUsageStore,
 	keywordRetriever keywordRetriever,
 ) *Ask {
 	return &Ask{
@@ -96,16 +109,21 @@ func NewAsk(
 		titleGenerator:   titles,
 		sessions:         sessions,
 		activeSessions:   activeSessions,
+		tokenUsage:       tokenUsage,
 		keywordRetriever: keywordRetriever,
 	}
 }
 
 type AskInput struct {
-	UserID     int64
-	Query      string
-	TurnLimit  int
-	ChunkLimit int
+	UserID           int64
+	Query            string
+	TurnLimit        int
+	ChunkLimit       int
+	TokenUsageLimit  int64
+	TokenUsageWindow time.Duration
 }
+
+var ErrTokenUsageLimitExceeded = errors.New("token usage limit exceeded")
 
 func (uc *Ask) SearchChunks(ctx context.Context, query string, limit int, userID int64) ([]Chunk, error) {
 	logger := appctx.Logger(ctx)
@@ -178,6 +196,16 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 	return func(yield func(string, error) bool) {
 		logger := appctx.Logger(ctx)
 
+		usage, err := uc.tokenUsage.GetTokenUsage(ctx, in.UserID, time.Now().Add(-in.TokenUsageWindow))
+		if err != nil {
+			yield("", fmt.Errorf("get token usage: %w", err))
+			return
+		}
+		if usage > in.TokenUsageLimit {
+			yield("", ErrTokenUsageLimitExceeded)
+			return
+		}
+
 		session, err := uc.resolveActiveSession(ctx, in.UserID)
 		if err != nil {
 			yield("", err)
@@ -233,14 +261,24 @@ func (uc *Ask) Execute(ctx context.Context, in *AskInput) iter.Seq2[string, erro
 		messages = append(messages, queryMessage)
 
 		var answer strings.Builder
-		for delta, err := range uc.answers.Stream(ctx, messages) {
+		for event, err := range uc.answers.Stream(ctx, messages) {
+			if event.TotalTokens != nil {
+				if err := uc.tokenUsage.AddTokenUsage(ctx, in.UserID, *event.TotalTokens); err != nil {
+					yield("", fmt.Errorf("add token usage: %w", err))
+				}
+			}
+
 			if err != nil {
 				yield("", fmt.Errorf("stream: %w", err))
 				return
 			}
 
-			answer.WriteString(delta)
-			if !yield(delta, nil) {
+			if event.TotalTokens != nil {
+				continue
+			}
+
+			answer.WriteString(event.Delta)
+			if !yield(event.Delta, nil) {
 				return
 			}
 		}

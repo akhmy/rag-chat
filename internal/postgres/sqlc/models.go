@@ -85,6 +85,13 @@ type Session struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type TokenUsage struct {
+	ID     pgtype.Int8
+	UserID int64
+	Tokens int64
+	UsedAt pgtype.Timestamptz
+}
+
 type Turn struct {
 	ID          int64
 	SessionID   pgtype.UUID
